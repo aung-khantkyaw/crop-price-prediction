@@ -58,6 +58,10 @@ LEGACY_MODEL_TYPE_MAP = {
 DATE_FORMATS = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d")
 X_COLUMN = "နေ့စွဲ"
 Y_COLUMN = "စျေးနှုန်း (မြန်မာကျပ်)"
+CHANGE_COLUMN = "အတက်/အကျ"
+PERCENT_COLUMN = "%"
+FEATURE_COLUMNS = ["day_index", "change_value", "percent_value"]
+TrainingPoint = tuple[date, float, float, float]
 
 
 def get_training_model_options() -> list[str]:
@@ -114,24 +118,28 @@ def parse_price_value(raw_value: str) -> float | None:
         return None
 
 
-def load_dataset_points(csv_path: Path) -> list[tuple[date, float]]:
+def load_dataset_points(csv_path: Path) -> list[TrainingPoint]:
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    points: list[tuple[date, float]] = []
+    points: list[TrainingPoint] = []
     for row in rows:
         parsed_date = parse_date_value(str(row.get(X_COLUMN, "")))
         parsed_price = parse_price_value(str(row.get(Y_COLUMN, "")))
+        parsed_change = parse_price_value(str(row.get(CHANGE_COLUMN, "")))
+        parsed_percent = parse_price_value(str(row.get(PERCENT_COLUMN, "")))
         if parsed_date is None or parsed_price is None:
             continue
-        points.append((parsed_date, parsed_price))
+        change_value = float(parsed_change) if parsed_change is not None else 0.0
+        percent_value = float(parsed_percent) if parsed_percent is not None else 0.0
+        points.append((parsed_date, float(parsed_price), change_value, percent_value))
 
     points.sort(key=lambda item: item[0])
     return points
 
 
-def build_training_features(points: list[tuple[date, float]]) -> tuple[list[list[float]], list[float], date, date]:
+def build_training_features(points: list[TrainingPoint]) -> tuple[list[list[float]], list[float], date, date]:
     if len(points) < 2:
         raise ValueError("Need at least 2 valid rows to train model.")
 
@@ -140,9 +148,9 @@ def build_training_features(points: list[tuple[date, float]]) -> tuple[list[list
     features: list[list[float]] = []
     targets: list[float] = []
 
-    for point_date, price in points:
+    for point_date, price, change_value, percent_value in points:
         day_index = float((point_date - origin_date).days)
-        features.append([day_index])
+        features.append([day_index, float(change_value), float(percent_value)])
         targets.append(float(price))
 
     return features, targets, origin_date, last_date
@@ -287,7 +295,7 @@ def create_xgb_regressor() -> Any:
     )
 
 
-def train_xgboost_from_points(points: list[tuple[date, float]]) -> tuple[Any, dict]:
+def train_xgboost_from_points(points: list[TrainingPoint]) -> tuple[Any, dict]:
     features, targets, origin_date, last_date = build_training_features(points)
     model = create_xgb_regressor()
     model.fit(features, targets)
@@ -299,6 +307,10 @@ def train_xgboost_from_points(points: list[tuple[date, float]]) -> tuple[Any, di
         "origin_date": origin_date,
         "last_date": last_date,
         "train_size": len(points),
+        "feature_columns": FEATURE_COLUMNS,
+        "last_observed_price": float(points[-1][1]),
+        "last_observed_change": float(points[-1][2]),
+        "last_observed_percent": float(points[-1][3]),
         "metrics": {
             "accuracy_percent": round(metrics["accuracy_percent"], 4)
             if metrics["accuracy_percent"] is not None
@@ -314,7 +326,7 @@ def train_xgboost_from_points(points: list[tuple[date, float]]) -> tuple[Any, di
     return model, training_info
 
 
-def train_selected_model_from_points(points: list[tuple[date, float]], model_name: str) -> tuple[Any, dict]:
+def train_selected_model_from_points(points: list[TrainingPoint], model_name: str) -> tuple[Any, dict]:
     features, targets, origin_date, last_date = build_training_features(points)
     model_type = MODEL_NAME_TO_TYPE.get(model_name)
     if model_type is None:
@@ -338,6 +350,10 @@ def train_selected_model_from_points(points: list[tuple[date, float]], model_nam
         "origin_date": origin_date,
         "last_date": last_date,
         "train_size": len(points),
+        "feature_columns": FEATURE_COLUMNS,
+        "last_observed_price": float(points[-1][1]),
+        "last_observed_change": float(points[-1][2]),
+        "last_observed_percent": float(points[-1][3]),
         "metrics": {
             "accuracy_percent": round(metrics["accuracy_percent"], 4)
             if metrics["accuracy_percent"] is not None
@@ -406,6 +422,10 @@ def save_model_and_metadata(
         "origin_date": training_info["origin_date"].isoformat(),
         "last_date": training_info["last_date"].isoformat(),
         "train_size": training_info["train_size"],
+        "feature_columns": training_info.get("feature_columns", ["day_index"]),
+        "last_observed_price": training_info.get("last_observed_price"),
+        "last_observed_change": training_info.get("last_observed_change"),
+        "last_observed_percent": training_info.get("last_observed_percent"),
         "metrics": training_info["metrics"],
     }
 
@@ -448,14 +468,31 @@ def load_model_from_metadata(metadata: dict, model_dir: Path) -> Any:
     raise ValueError("Unsupported model type.")
 
 
-def _predict_for_day_index(model: Any, model_type: str, day_index: float) -> float:
+def _predict_for_features(model: Any, model_type: str, feature_values: list[float]) -> float:
     if model_type in {"xgboost_regressor", "catboost_regressor"}:
-        return float(model.predict([[day_index]])[0])
+        return float(model.predict([feature_values])[0])
     if model_type == "lightgbm_regressor":
-        return float(model.predict([[day_index]])[0])
+        return float(model.predict([feature_values])[0])
     if model_type == "sarima_elasticnet":
         raise ValueError("Use SARIMA + ElasticNet batch forecast method.")
     raise ValueError("Unsupported model type.")
+
+
+def _calculate_percent_change(change_value: float, previous_price: float) -> float:
+    if previous_price == 0:
+        return 0.0
+    return (change_value / previous_price) * 100.0
+
+
+def _build_future_feature_vector(
+    day_index: float,
+    feature_columns: list[str],
+    previous_change: float,
+    previous_percent: float,
+) -> list[float]:
+    if len(feature_columns) <= 1:
+        return [day_index]
+    return [day_index, float(previous_change), float(previous_percent)]
 
 
 def predict_next_days(model: Any, origin_date: date, last_date: date, days: int = 30) -> list[dict]:
@@ -478,17 +515,33 @@ def predict_next_days_from_model(metadata: dict, model_dir: Path, days: int = 30
     last_date = date.fromisoformat(str(metadata["last_date"]))
     model_type = normalize_model_type(str(metadata.get("model_type", "xgboost_regressor")))
     model = load_model_from_metadata(metadata, model_dir)
+    feature_columns = [str(value) for value in metadata.get("feature_columns", ["day_index"])]
+    previous_price = float(metadata.get("last_observed_price", 0.0) or 0.0)
+    previous_change = float(metadata.get("last_observed_change", 0.0) or 0.0)
+    previous_percent = float(metadata.get("last_observed_percent", 0.0) or 0.0)
 
     if model_type != "sarima_elasticnet":
         predictions = []
         for day_offset in range(1, days + 1):
             predict_date = last_date + timedelta(days=day_offset)
             day_index = float((predict_date - origin_date).days)
-            predicted_price = _predict_for_day_index(model, model_type, day_index)
+            feature_values = _build_future_feature_vector(
+                day_index=day_index,
+                feature_columns=feature_columns,
+                previous_change=previous_change,
+                previous_percent=previous_percent,
+            )
+            predicted_price = _predict_for_features(model, model_type, feature_values)
+            predicted_price = max(float(predicted_price), 0.0)
+            predicted_change = predicted_price - previous_price
+            predicted_percent = _calculate_percent_change(predicted_change, previous_price)
+            previous_price = predicted_price
+            previous_change = predicted_change
+            previous_percent = predicted_percent
             predictions.append(
                 {
                     X_COLUMN: predict_date.isoformat(),
-                    Y_COLUMN: round(max(predicted_price, 0.0), 2),
+                    Y_COLUMN: round(predicted_price, 2),
                 }
             )
         return predictions
@@ -499,7 +552,21 @@ def predict_next_days_from_model(metadata: dict, model_dir: Path, days: int = 30
     for day_offset in range(1, days + 1):
         predict_date = last_date + timedelta(days=day_offset)
         day_index = float((predict_date - origin_date).days)
-        elastic_predictions.append(float(elastic_model.predict([[day_index]])[0]))
+        feature_values = _build_future_feature_vector(
+            day_index=day_index,
+            feature_columns=feature_columns,
+            previous_change=previous_change,
+            previous_percent=previous_percent,
+        )
+        elastic_pred = float(elastic_model.predict([feature_values])[0])
+        elastic_predictions.append(elastic_pred)
+
+        estimated_price = max(elastic_pred, 0.0)
+        estimated_change = estimated_price - previous_price
+        estimated_percent = _calculate_percent_change(estimated_change, previous_price)
+        previous_price = estimated_price
+        previous_change = estimated_change
+        previous_percent = estimated_percent
 
     sarima_forecast = _to_float_list(sarima_result.get_forecast(steps=days).predicted_mean)
     predictions = []

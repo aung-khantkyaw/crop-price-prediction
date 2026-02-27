@@ -15,7 +15,7 @@ All datasets are collected from:
 - Scrape crop price table data from Agrosight URLs
 - Save outputs to CSV and JSON
 - Keep activity logs in `history.json`
-- Read and visualize datasets
+- Read, clean, and visualize datasets
 - Train multiple forecasting algorithms
 - Predict next 30 days prices
 - Compare models trained on the same dataset
@@ -80,11 +80,19 @@ Project overview, workflow explanation, model options, and comparison flow.
 ### Dataset
 
 - Select CSV file
+- Data Cleaning State with save-to-CSV action
+- Cleaning rules:
+  - If `04/05/2025` price is `0` or null, replace with `03/05/2025` price
+  - Fill all missing days in the CSV date range using previous day row
+  - Keep inserted dates in the same format as the original dataset
+  - Fix duplicate/invalid serial values in `စဥ်` / `စဉ်` to sequential `1..N`
+  - Normalize `အတက်/အကျ` and `%` columns (`-` → `0` and `0.00%`, including row no.1)
+  - Recalculate `အတက်/အကျ` from day-to-day price difference (`today - yesterday`)
 - Preview dataset table
 - Filter by date range
 - Line graph behavior:
   - Uses date (`နေ့စွဲ`) and price (`စျေးနှုန်း (မြန်မာကျပ်)`)
-  - Default interval is monthly (every 1st day)
+  - Interval adapts by selected range (daily / weekly / every 15 days)
   - Y-axis range is always:
   - Start = `min_price - 1000`
   - End = `max_price + 1000`
@@ -92,6 +100,13 @@ Project overview, workflow explanation, model options, and comparison flow.
 ### Traing Model
 
 Train model from selected dataset and algorithm.
+
+Training is based on 4 columns:
+
+- `နေ့စွဲ`
+- `စျေးနှုန်း (မြန်မာကျပ်)`
+- `အတက်/အကျ`
+- `%`
 
 Supported algorithms:
 

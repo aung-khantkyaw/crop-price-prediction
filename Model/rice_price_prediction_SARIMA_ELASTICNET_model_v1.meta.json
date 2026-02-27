@@ -1,18 +1,26 @@
 {
-  "model_name": "rice_price_prediction_SARIMA_ELASTICNET_model_v1",
+  "model_name": "rice_price_prediction_sarima_elasticnet_model_v1",
   "model_display_name": "SARIMA + ElasticNet",
   "model_type": "sarima_elasticnet",
-  "model_file": "rice_price_prediction_SARIMA_ELASTICNET_model_v1.pkl",
+  "model_file": "rice_price_prediction_sarima_elasticnet_model_v1.pkl",
   "dataset_file": "agrosight_rice_wartan_01_01_2024_to_26_02_2026.csv",
-  "created_at": "2026-02-27T13:51:16.541798+00:00",
+  "created_at": "2026-02-27T16:31:09.059446+00:00",
   "origin_date": "2024-01-01",
   "last_date": "2026-02-26",
-  "train_size": 504,
+  "train_size": 788,
+  "feature_columns": [
+    "day_index",
+    "change_value",
+    "percent_value"
+  ],
+  "last_observed_price": 1140.0,
+  "last_observed_change": 0.0,
+  "last_observed_percent": 0.0,
   "metrics": {
-    "accuracy_percent": 97.9091,
-    "r2": 0.93449,
-    "mae": 29.8681,
-    "rmse": 47.7522,
-    "mape_percent": 2.0909
+    "accuracy_percent": 97.9585,
+    "r2": 0.943362,
+    "mae": 29.1473,
+    "rmse": 44.0636,
+    "mape_percent": 2.0415
   }
 }

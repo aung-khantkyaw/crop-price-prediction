@@ -1,5 +1,6 @@
 import csv
 import json
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import streamlit as st
 
 from agrosight_scraper import OUTPUT_COLUMNS, infer_output_prefix, safe_filename, scrape
 from training_model import (
+    DATE_FORMATS,
     X_COLUMN,
     Y_COLUMN,
     get_training_model_options,
@@ -28,6 +30,9 @@ CSV_DIR = BASE_DIR / "dataset" / "csv"
 JSON_DIR = BASE_DIR / "dataset" / "json"
 HISTORY_PATH = BASE_DIR / "history.json"
 MODEL_DIR = BASE_DIR / "Model"
+SERIAL_COLUMNS = ("စဥ်", "စဉ်")
+CHANGE_COLUMN = "အတက်/အကျ"
+PERCENT_COLUMN = "%"
 
 
 def _get_y_axis_bounds(rows: list[dict], y_columns: list[str]) -> tuple[float, float] | None:
@@ -280,7 +285,7 @@ def show_about_system_page() -> None:
     st.markdown("- Scrape crop price table data from Agrosight URLs")
     st.markdown("- Save outputs to CSV and JSON")
     st.markdown("- Keep activity logs in `history.json`")
-    st.markdown("- Read and visualize datasets")
+    st.markdown("- Read, clean, and visualize datasets")
     st.markdown("- Train multiple forecasting algorithms")
     st.markdown("- Predict next 30 days prices")
     st.markdown("- Compare models trained on the same dataset")
@@ -297,6 +302,12 @@ def show_about_system_page() -> None:
 
     st.markdown("### Dataset")
     st.markdown("- Select CSV file")
+    st.markdown("- Data Cleaning State with save-to-CSV action")
+    st.markdown("- Replace missing/zero price on 04/05/2025 from 03/05/2025")
+    st.markdown("- Fill missing days across full date range using previous day row")
+    st.markdown("- Fix `စဥ်/စဉ်` serial column to sequential values when needed")
+    st.markdown("- Normalize `အတက်/အကျ` and `%` (`-` → `0` and `0.00%`, including row 1)")
+    st.markdown("- Recalculate `အတက်/အကျ` from day-to-day price differences")
     st.markdown("- Preview dataset table")
     st.markdown("- Filter by date range")
     st.markdown("- Line graph uses date (`နေ့စွဲ`) and price (`စျေးနှုန်း (မြန်မာကျပ်)`)")
@@ -306,6 +317,7 @@ def show_about_system_page() -> None:
 
     st.markdown("### Traing Model")
     st.markdown("Train model from selected dataset and algorithm.")
+    st.markdown("Training input columns: `နေ့စွဲ`, `စျေးနှုန်း (မြန်မာကျပ်)`, `အတက်/အကျ`, `%`")
     st.markdown("Supported algorithms:")
     st.markdown("- XGBoost Regressor")
     st.markdown("- LightGBM Regressor")
@@ -419,6 +431,208 @@ def show_scrap_page() -> None:
         st.error(f"Scrape failed: {exc}")
 
 
+def _sort_rows_by_date(rows: list[dict]) -> list[dict]:
+    dated_rows: list[tuple[date, dict]] = []
+    undated_rows: list[dict] = []
+    for row in rows:
+        parsed_date = parse_date_value(str(row.get(X_COLUMN, "")))
+        if parsed_date is None:
+            undated_rows.append(row)
+            continue
+        dated_rows.append((parsed_date, row))
+
+    dated_rows.sort(key=lambda item: item[0])
+    return [row for _, row in dated_rows] + undated_rows
+
+
+def _infer_date_format(rows: list[dict]) -> str:
+    format_counter: Counter[str] = Counter()
+    for row in rows:
+        raw_date = str(row.get(X_COLUMN, "")).strip()
+        if not raw_date:
+            continue
+
+        for fmt in DATE_FORMATS:
+            try:
+                datetime.strptime(raw_date, fmt)
+                format_counter[fmt] += 1
+                break
+            except ValueError:
+                continue
+
+    if not format_counter:
+        return "%d/%m/%Y"
+    return format_counter.most_common(1)[0][0]
+
+
+def _get_serial_column(rows: list[dict]) -> str | None:
+    for column in SERIAL_COLUMNS:
+        if any(column in row for row in rows):
+            return column
+    return None
+
+
+def _format_numeric_string(value: float) -> str:
+    rounded_value = round(float(value), 6)
+    if float(rounded_value).is_integer():
+        return str(int(rounded_value))
+    return f"{rounded_value:.6f}".rstrip("0").rstrip(".")
+
+
+def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
+    cleaned_rows = [dict(row) for row in rows]
+    notes: list[str] = []
+    date_format = _infer_date_format(cleaned_rows)
+
+    rows_by_date: dict[date, dict] = {}
+    for row in cleaned_rows:
+        parsed_date = parse_date_value(str(row.get(X_COLUMN, "")))
+        if parsed_date is None:
+            continue
+        rows_by_date[parsed_date] = row
+
+    def replace_if_zero_or_null(target_date: date, source_date: date) -> None:
+        target_row = rows_by_date.get(target_date)
+        source_row = rows_by_date.get(source_date)
+        if target_row is None or source_row is None:
+            return
+
+        target_price = parse_price_value(str(target_row.get(Y_COLUMN, "")))
+        source_price_raw = str(source_row.get(Y_COLUMN, "")).strip()
+        source_price = parse_price_value(source_price_raw)
+        if source_price is None:
+            return
+
+        if target_price is None or target_price == 0:
+            target_row[Y_COLUMN] = source_price_raw
+            notes.append(
+                f"Replaced {target_date.strftime('%d/%m/%Y')} price with {source_date.strftime('%d/%m/%Y')} price."
+            )
+
+    def fill_all_missing_days() -> None:
+        if not rows_by_date:
+            return
+
+        existing_dates = sorted(rows_by_date.keys())
+        start_date = existing_dates[0]
+        end_date = existing_dates[-1]
+        filled_count = 0
+
+        cursor = start_date
+        while cursor <= end_date:
+            if cursor not in rows_by_date:
+                source_date = cursor - timedelta(days=1)
+                source_row = rows_by_date.get(source_date)
+                if source_row is not None:
+                    new_row = dict(source_row)
+                    new_row[X_COLUMN] = cursor.strftime(date_format)
+                    cleaned_rows.append(new_row)
+                    rows_by_date[cursor] = new_row
+                    filled_count += 1
+            cursor += timedelta(days=1)
+
+        if filled_count > 0:
+            notes.append(f"Filled {filled_count} missing day(s) across the full dataset range.")
+
+    def fix_duplicate_serial_numbers(sorted_rows: list[dict]) -> None:
+        serial_column = _get_serial_column(sorted_rows)
+        if serial_column is None:
+            return
+
+        current_values = [str(row.get(serial_column, "")).strip() for row in sorted_rows]
+        expected_values = [str(index) for index in range(1, len(sorted_rows) + 1)]
+
+        if current_values == expected_values:
+            return
+
+        non_empty_values = [value for value in current_values if value]
+        has_duplicates = len(non_empty_values) != len(set(non_empty_values))
+
+        for index, row in enumerate(sorted_rows, start=1):
+            row[serial_column] = str(index)
+
+        if has_duplicates:
+            notes.append(f"Fixed duplicate serial numbers in {serial_column} column.")
+        else:
+            notes.append(f"Reordered {serial_column} column to sequential values.")
+
+    def clean_price_change_column(sorted_rows: list[dict]) -> None:
+        if not sorted_rows:
+            return
+
+        changed_count = 0
+        previous_price: float | None = None
+
+        for index, row in enumerate(sorted_rows):
+            current_price = parse_price_value(str(row.get(Y_COLUMN, "")))
+            raw_change = str(row.get(CHANGE_COLUMN, "")).strip()
+            raw_percent = str(row.get(PERCENT_COLUMN, "")).strip()
+
+            if raw_percent == "-":
+                row[PERCENT_COLUMN] = "0.00%"
+                changed_count += 1
+
+            if index == 0:
+                if raw_change != "0":
+                    row[CHANGE_COLUMN] = "0"
+                    changed_count += 1
+                if str(row.get(PERCENT_COLUMN, "")).strip() != "0.00%":
+                    row[PERCENT_COLUMN] = "0.00%"
+                    changed_count += 1
+                if current_price is not None:
+                    previous_price = current_price
+                continue
+
+            if raw_change == "-":
+                row[CHANGE_COLUMN] = "0"
+                changed_count += 1
+                if current_price is not None:
+                    previous_price = current_price
+                continue
+
+            if current_price is None or previous_price is None:
+                if current_price is not None:
+                    previous_price = current_price
+                continue
+
+            has_decrease_sign = any(marker in raw_change for marker in ("-", "−", "▼", "↓", "ကျ"))
+            has_increase_sign = any(marker in raw_change for marker in ("+", "▲", "↑", "တက်"))
+
+            if has_decrease_sign and not has_increase_sign:
+                computed_change = current_price - previous_price
+            elif has_increase_sign and not has_decrease_sign:
+                computed_change = current_price - previous_price
+            else:
+                computed_change = current_price - previous_price
+
+            normalized_change = _format_numeric_string(computed_change)
+            if raw_change != normalized_change:
+                row[CHANGE_COLUMN] = normalized_change
+                changed_count += 1
+
+            previous_price = current_price
+
+        if changed_count > 0:
+            notes.append(
+                f"Updated {changed_count} value(s) in {CHANGE_COLUMN} and {PERCENT_COLUMN} during cleaning."
+            )
+
+    replace_if_zero_or_null(target_date=date(2025, 5, 4), source_date=date(2025, 5, 3))
+    fill_all_missing_days()
+    sorted_rows = _sort_rows_by_date(cleaned_rows)
+    clean_price_change_column(sorted_rows)
+    fix_duplicate_serial_numbers(sorted_rows)
+    return sorted_rows, notes
+
+
+def _write_cleaned_csv(file_path: Path, fieldnames: list[str], rows: list[dict]) -> None:
+    effective_fieldnames = fieldnames or list(rows[0].keys()) if rows else []
+    with file_path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=effective_fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def show_dataset_page() -> None:
     st.title("Dataset")
     CSV_DIR.mkdir(parents=True, exist_ok=True)
@@ -437,7 +651,24 @@ def show_dataset_page() -> None:
     try:
         with selected_file.open("r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
             rows = list(reader)
+
+        cleaned_rows, cleaning_notes = _apply_dataset_cleaning(rows)
+
+        st.subheader("Data Cleaning State")
+        if cleaning_notes:
+            st.info(f"Applied {len(cleaning_notes)} cleaning change(s).")
+            for note in cleaning_notes:
+                st.write(f"- {note}")
+            if st.button("Save Cleaned Data to CSV", key=f"save_cleaned_{selected_file_name}"):
+                _write_cleaned_csv(selected_file, fieldnames, cleaned_rows)
+                st.success(f"Saved cleaned data to {selected_file.name}")
+                st.rerun()
+        else:
+            st.success("No cleaning changes needed for the selected dataset.")
+
+        rows = cleaned_rows
 
         st.write(f"Rows: {len(rows)}")
         if rows:

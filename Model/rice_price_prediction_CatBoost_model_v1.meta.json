@@ -1,18 +1,26 @@
 {
-  "model_name": "rice_price_prediction_CatBoost_model_v1",
+  "model_name": "rice_price_prediction_catboost_model_v1",
   "model_display_name": "CatBoostRegressor",
   "model_type": "catboost_regressor",
-  "model_file": "rice_price_prediction_CatBoost_model_v1.cbm",
+  "model_file": "rice_price_prediction_catboost_model_v1.cbm",
   "dataset_file": "agrosight_rice_wartan_01_01_2024_to_26_02_2026.csv",
-  "created_at": "2026-02-27T13:50:51.470997+00:00",
+  "created_at": "2026-02-27T16:30:50.447210+00:00",
   "origin_date": "2024-01-01",
   "last_date": "2026-02-26",
-  "train_size": 504,
+  "train_size": 788,
+  "feature_columns": [
+    "day_index",
+    "change_value",
+    "percent_value"
+  ],
+  "last_observed_price": 1140.0,
+  "last_observed_change": 0.0,
+  "last_observed_percent": 0.0,
   "metrics": {
-    "accuracy_percent": 99.8427,
-    "r2": 0.999427,
-    "mae": 2.227,
-    "rmse": 4.4661,
-    "mape_percent": 0.1573
+    "accuracy_percent": 99.839,
+    "r2": 0.999518,
+    "mae": 2.2344,
+    "rmse": 4.0662,
+    "mape_percent": 0.161
   }
 }
