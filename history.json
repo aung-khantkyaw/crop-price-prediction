@@ -1,0 +1,46 @@
+[
+  {
+    "timestamp": "2026-02-27T10:49:20.094104+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=2024-01-01&to=2026-02-27",
+    "max_page": 17,
+    "output_prefix": "agrosight_rice_wartan_01_01_2024_to_26_02_2026",
+    "status": "success",
+    "rows_scraped": 504,
+    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\agrosight_rice_wartan_01_01_2024_to_26_02_2026.csv",
+    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\agrosight_rice_wartan_01_01_2024_to_26_02_2026.json",
+    "error": null
+  },
+  {
+    "timestamp": "2026-02-27T11:26:20.206155+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%95%E1%80%BC%E1%80%B1%E1%80%AC%E1%80%84%E1%80%BA%E1%80%B8%E1%80%96%E1%80%B0%E1%80%B8%E1%80%85%E1%80%B1%E1%80%B7&from=2024-01-01&to=2026-02-27",
+    "max_page": 17,
+    "output_prefix": "agrosight_corns_bayintnaung_01_01_2024_to_26_02_2026",
+    "status": "success",
+    "rows_scraped": 483,
+    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\agrosight_corns_bayintnaung_01_01_2024_to_26_02_2026.csv",
+    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\agrosight_corns_bayintnaung_01_01_2024_to_26_02_2026.json",
+    "error": null
+  },
+  {
+    "timestamp": "2026-02-27T12:58:41.242318+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%95%E1%80%BC%E1%80%B1%E1%80%AC%E1%80%84%E1%80%BA%E1%80%B8%E1%80%96%E1%80%B0%E1%80%B8%E1%80%85%E1%80%B1%E1%80%B7&from=2024-01-01&to=2026-02-27",
+    "max_page": 17,
+    "output_prefix": "crop_data_scrap",
+    "status": "success",
+    "rows_scraped": 484,
+    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\crop_data_scrap.csv",
+    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\crop_data_scrap.json",
+    "error": null
+  },
+  {
+    "timestamp": "2026-02-27T13:11:51.930501+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%95%E1%80%BC%E1%80%B1%E1%80%AC%E1%80%84%E1%80%BA%E1%80%B8%E1%80%96%E1%80%B0%E1%80%B8%E1%80%85%E1%80%B1%E1%80%B7&from=2024-01-01&to=2026-02-27",
+    "max_page": 17,
+    "output_prefix": "corn_dataset",
+    "status": "success",
+    "rows_scraped": 484,
+    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\corn_dataset.csv",
+    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\corn_dataset.json",
+    "error": null
+  }
+]

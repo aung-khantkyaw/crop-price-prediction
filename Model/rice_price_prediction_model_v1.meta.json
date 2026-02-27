@@ -1,0 +1,17 @@
+{
+  "model_name": "rice_price_prediction_model_v1",
+  "model_type": "xgboost",
+  "model_file": "rice_price_prediction_model_v1.ubj",
+  "dataset_file": "agrosight_rice_wartan_01_01_2024_to_26_02_2026.csv",
+  "created_at": "2026-02-27T12:12:50.507997+00:00",
+  "origin_date": "2024-01-01",
+  "last_date": "2026-02-26",
+  "train_size": 504,
+  "metrics": {
+    "accuracy_percent": 99.9245,
+    "r2": 0.999441,
+    "mae": 1.035,
+    "rmse": 4.4117,
+    "mape_percent": 0.0755
+  }
+}
