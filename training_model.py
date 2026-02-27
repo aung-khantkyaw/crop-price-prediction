@@ -495,6 +495,37 @@ def _build_future_feature_vector(
     return [day_index, float(previous_change), float(previous_percent)]
 
 
+def get_training_fit_rows(points: list[TrainingPoint], model: Any, model_type: str) -> list[dict]:
+    if not points:
+        return []
+
+    normalized_model_type = normalize_model_type(model_type)
+    features, targets, _, _ = build_training_features(points)
+
+    if normalized_model_type in {"xgboost_regressor", "lightgbm_regressor", "catboost_regressor"}:
+        predicted_values = _to_float_list(model.predict(features))
+    elif normalized_model_type == "sarima_elasticnet":
+        elastic_predictions = _to_float_list(model["elastic_model"].predict(features))
+        sarima_predictions = _to_float_list(model["sarima_result"].get_prediction(start=0, end=len(targets) - 1).predicted_mean)
+        predicted_values = [
+            (elastic_pred + sarima_pred) / 2.0
+            for elastic_pred, sarima_pred in zip(elastic_predictions, sarima_predictions)
+        ]
+    else:
+        raise ValueError("Unsupported model type.")
+
+    fit_rows: list[dict] = []
+    for point, actual_value, predicted_value in zip(points, targets, predicted_values):
+        fit_rows.append(
+            {
+                X_COLUMN: point[0].isoformat(),
+                "Actual": round(float(actual_value), 2),
+                "Predicted": round(float(predicted_value), 2),
+            }
+        )
+    return fit_rows
+
+
 def predict_next_days(model: Any, origin_date: date, last_date: date, days: int = 30) -> list[dict]:
     predictions = []
     for day_offset in range(1, days + 1):

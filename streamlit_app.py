@@ -14,8 +14,10 @@ from training_model import (
     X_COLUMN,
     Y_COLUMN,
     get_training_model_options,
+    get_training_fit_rows,
     is_training_model_available,
     load_dataset_points,
+    load_model_from_metadata,
     load_model_metadata,
     parse_date_value,
     parse_price_value,
@@ -50,12 +52,52 @@ def _get_y_axis_bounds(rows: list[dict], y_columns: list[str]) -> tuple[float, f
     if not values:
         return None
 
-    min_value = min(values) - 1000
-    max_value = max(values) + 1000
+    min_value = min(values) - 300
+    max_value = max(values) + 300
     if min_value == max_value:
-        min_value -= 1000
-        max_value += 1000
+        min_value -= 300
+        max_value += 300
     return min_value, max_value
+
+
+def _get_price_axis_with_interval(min_value: float, max_value: float, interval: int = 100) -> alt.Axis:
+    if interval <= 0:
+        return alt.Axis()
+
+    start_value = int(min_value // interval) * interval
+    end_value = int((max_value + interval - 1) // interval) * interval
+    tick_values = list(range(start_value, end_value + interval, interval))
+
+    if len(tick_values) > 400:
+        return alt.Axis()
+    return alt.Axis(values=tick_values)
+
+
+def _get_dynamic_interval_from_range(value_range: float) -> int:
+    if value_range < 1000:
+        return 100
+    if value_range < 50000:
+        return 1000
+    return 5000
+
+
+def _get_dynamic_price_interval(rows: list[dict], y_columns: list[str]) -> int:
+    values: list[float] = []
+    for row in rows:
+        for column in y_columns:
+            value = row.get(column)
+            if value is None:
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+    if not values:
+        return 100
+
+    value_range = max(values) - min(values)
+    return _get_dynamic_interval_from_range(value_range)
 
 
 def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> None:
@@ -72,12 +114,19 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
 
     if len(y_columns) == 1:
         y_column = y_columns[0]
+        y_interval = _get_dynamic_price_interval(rows, y_columns)
+        y_axis = _get_price_axis_with_interval(y_bounds[0], y_bounds[1], interval=y_interval)
         chart = (
             alt.Chart(data_frame)
-            .mark_line(point=True)
+            .mark_line()
             .encode(
                 x=alt.X(f"{x_column}:N", title=x_column),
-                y=alt.Y(f"{y_column}:Q", title=y_column, scale=alt.Scale(domain=[y_bounds[0], y_bounds[1]])),
+                y=alt.Y(
+                    f"{y_column}:Q",
+                    title=y_column,
+                    scale=alt.Scale(domain=[y_bounds[0], y_bounds[1]]),
+                    axis=y_axis,
+                ),
                 tooltip=[
                     alt.Tooltip(f"{x_column}:N", title=x_column),
                     alt.Tooltip(f"{y_column}:Q", title=Y_COLUMN),
@@ -89,13 +138,30 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
         return
 
     melted = data_frame.melt(id_vars=[x_column], value_vars=y_columns, var_name="model", value_name="value")
+    if set(y_columns) == {"Actual", "Predicted"}:
+        color_encoding = alt.Color(
+            "model:N",
+            title="Series",
+            legend=alt.Legend(orient="bottom"),
+            scale=alt.Scale(domain=["Actual", "Predicted"], range=["#1f77b4", "#ff7f0e"]),
+        )
+    else:
+        color_encoding = alt.Color("model:N", title="Algorithm", legend=alt.Legend(orient="bottom"))
+
+    y_interval = _get_dynamic_price_interval(rows, y_columns)
+    y_axis = _get_price_axis_with_interval(y_bounds[0], y_bounds[1], interval=y_interval)
     chart = (
         alt.Chart(melted)
-        .mark_line(point=True)
+        .mark_line()
         .encode(
             x=alt.X(f"{x_column}:N", title=x_column),
-            y=alt.Y("value:Q", title=Y_COLUMN, scale=alt.Scale(domain=[y_bounds[0], y_bounds[1]])),
-            color=alt.Color("model:N", title="Algorithm", legend=alt.Legend(orient="bottom")),
+            y=alt.Y(
+                "value:Q",
+                title=Y_COLUMN,
+                scale=alt.Scale(domain=[y_bounds[0], y_bounds[1]]),
+                axis=y_axis,
+            ),
+            color=color_encoding,
             tooltip=[
                 alt.Tooltip(f"{x_column}:N", title=x_column),
                 alt.Tooltip("model:N", title="Algorithm"),
@@ -383,7 +449,7 @@ def show_about_system_page() -> None:
 
 
 def show_scrap_page() -> None:
-    st.title("Scrap")
+    st.title("Scrap Dataset")
 
     with st.form("scrape_form"):
         url = st.text_input("URL", placeholder="https://...", help="Agrosight search URL")
@@ -788,11 +854,16 @@ def show_dataset_page() -> None:
             if boxplot_rows:
                 st.subheader("Monthly Price Boxplot")
                 boxplot_df = pd.DataFrame(boxplot_rows)
-                boxplot_min = float(boxplot_df[y_column].min()) - 5000
-                boxplot_max = float(boxplot_df[y_column].max()) + 5000
+                boxplot_min = float(boxplot_df[y_column].min()) - 300
+                boxplot_max = float(boxplot_df[y_column].max()) + 300
                 if boxplot_min == boxplot_max:
-                    boxplot_min -= 5000
-                    boxplot_max += 5000
+                    boxplot_min -= 300
+                    boxplot_max += 300
+
+                boxplot_range = float(boxplot_df[y_column].max()) - float(boxplot_df[y_column].min())
+                boxplot_interval = _get_dynamic_interval_from_range(boxplot_range)
+                boxplot_axis = _get_price_axis_with_interval(boxplot_min, boxplot_max, interval=boxplot_interval)
+
                 boxplot_chart = (
                     alt.Chart(boxplot_df)
                     .mark_boxplot()
@@ -802,6 +873,7 @@ def show_dataset_page() -> None:
                             f"{y_column}:Q",
                             title=y_column,
                             scale=alt.Scale(domain=[boxplot_min, boxplot_max]),
+                            axis=boxplot_axis,
                         ),
                         tooltip=["month", y_column],
                     )
@@ -863,6 +935,15 @@ def show_training_model_page() -> None:
         st.write(f"MAE: {model_payload['metrics']['mae']}")
         st.write(f"RMSE: {model_payload['metrics']['rmse']}")
         st.write(f"MAPE (%): {model_payload['metrics']['mape_percent']}")
+
+        fit_rows = get_training_fit_rows(
+            points=points,
+            model=model,
+            model_type=str(training_info.get("model_type", "")),
+        )
+        if fit_rows:
+            st.subheader("Actual vs Predicted (Training Dataset)")
+            render_line_chart(fit_rows, x_column=X_COLUMN, y_columns=["Actual", "Predicted"])
     except Exception as exc:
         st.error(f"Model training failed: {exc}")
 
@@ -913,21 +994,47 @@ def show_model_page() -> None:
     x_column = X_COLUMN
     y_column = Y_COLUMN
 
-    st.subheader("Model Metadata")
-    st.write(f"Model: {model.get('model_name', selected_model_name)}")
-    st.write(f"Algorithm: {model.get('model_display_name', model.get('model_type', 'N/A'))}")
-    st.write(f"Dataset: {model.get('dataset_file', 'N/A')}")
-    st.write(f"Created At: {model.get('created_at', 'N/A')}")
-    st.write(f"Training Rows: {model.get('train_size', 'N/A')}")
-
     metric_data = model.get("metrics", {})
-    if not metric_data:
-        st.info("Metrics are not available for this model metadata.")
-    st.write(f"Accuracy (%): {metric_data.get('accuracy_percent', 'N/A')}")
-    st.write(f"R²: {metric_data.get('r2', 'N/A')}")
-    st.write(f"MAE: {metric_data.get('mae', 'N/A')}")
-    st.write(f"RMSE: {metric_data.get('rmse', 'N/A')}")
-    st.write(f"MAPE (%): {metric_data.get('mape_percent', 'N/A')}")
+
+    metadata_col, fit_col = st.columns([1, 1])
+    with metadata_col:
+        st.subheader("Model Metadata")
+        st.write(f"Model: {model.get('model_name', selected_model_name)}")
+        st.write(f"Algorithm: {model.get('model_display_name', model.get('model_type', 'N/A'))}")
+        st.write(f"Dataset: {model.get('dataset_file', 'N/A')}")
+        st.write(f"Created At: {model.get('created_at', 'N/A')}")
+        st.write(f"Training Rows: {model.get('train_size', 'N/A')}")
+
+        if not metric_data:
+            st.info("Metrics are not available for this model metadata.")
+        st.write(f"Accuracy (%): {metric_data.get('accuracy_percent', 'N/A')}")
+        st.write(f"R²: {metric_data.get('r2', 'N/A')}")
+        st.write(f"MAE: {metric_data.get('mae', 'N/A')}")
+        st.write(f"RMSE: {metric_data.get('rmse', 'N/A')}")
+        st.write(f"MAPE (%): {metric_data.get('mape_percent', 'N/A')}")
+
+    with fit_col:
+        st.subheader("Actual vs Predicted (Training Dataset)")
+        dataset_name = str(model.get("dataset_file", "")).strip()
+        dataset_path = CSV_DIR / dataset_name if dataset_name else None
+
+        if dataset_path is None or not dataset_path.exists():
+            st.info("Training dataset file is not available for this model.")
+        else:
+            try:
+                model_object = load_model_from_metadata(model, MODEL_DIR)
+                training_points = load_dataset_points(dataset_path)
+                fit_rows = get_training_fit_rows(
+                    points=training_points,
+                    model=model_object,
+                    model_type=str(model.get("model_type", "")),
+                )
+                if fit_rows:
+                    render_line_chart(fit_rows, x_column=X_COLUMN, y_columns=["Actual", "Predicted"])
+                else:
+                    st.info("No valid rows available for training fit plot.")
+            except Exception as exc:
+                st.info(f"Could not generate training fit plot: {exc}")
 
     predictions = predict_next_days_from_model(metadata=model, model_dir=MODEL_DIR, days=30)
 
