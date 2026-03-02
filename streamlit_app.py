@@ -702,6 +702,18 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
                 f"Updated {changed_count} value(s) in {CHANGE_COLUMN} and {PERCENT_COLUMN} during cleaning."
             )
 
+    def remove_commas_from_price_column() -> None:
+        changed_count = 0
+        for row in cleaned_rows:
+            raw_value = str(row.get(Y_COLUMN, ""))
+            stripped = raw_value.strip()
+            if "," in stripped:
+                row[Y_COLUMN] = stripped.replace(",", "")
+                changed_count += 1
+        if changed_count > 0:
+            notes.append(f"Removed commas from {changed_count} value(s) in {Y_COLUMN} column.")
+
+    remove_commas_from_price_column()
     replace_if_zero_or_null(target_date=date(2025, 5, 4), source_date=date(2025, 5, 3))
     fill_all_missing_days()
     sorted_rows = _sort_rows_by_date(cleaned_rows)
