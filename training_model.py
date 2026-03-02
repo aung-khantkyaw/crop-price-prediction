@@ -551,7 +551,7 @@ def predict_next_days_from_model(metadata: dict, model_dir: Path, days: int = 30
     previous_change = float(metadata.get("last_observed_change", 0.0) or 0.0)
     previous_percent = float(metadata.get("last_observed_percent", 0.0) or 0.0)
 
-    if model_type != "sarima_elasticnet":
+    if model_type not in {"sarima_elasticnet"}:
         predictions = []
         for day_offset in range(1, days + 1):
             predict_date = last_date + timedelta(days=day_offset)
