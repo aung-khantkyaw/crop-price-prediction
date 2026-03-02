@@ -42,5 +42,16 @@
     "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\corn_dataset.csv",
     "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\corn_dataset.json",
     "error": null
+  },
+  {
+    "timestamp": "2026-03-02T03:52:31.680980+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=2024-01-01&to=2026-03-02",
+    "max_page": 17,
+    "output_prefix": "wartan_rice_price_from_2024_01_01_to_2026_03_02",
+    "status": "success",
+    "rows_scraped": 505,
+    "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\wartan_rice_price_from_2024_01_01_to_2026_03_02.csv",
+    "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\wartan_rice_price_from_2024_01_01_to_2026_03_02.json",
+    "error": null
   }
 ]
