@@ -1,5 +1,6 @@
 import csv
 import json
+import math
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -45,7 +46,9 @@ def _get_y_axis_bounds(rows: list[dict], y_columns: list[str]) -> tuple[float, f
             if value is None:
                 continue
             try:
-                values.append(float(value))
+                numeric_value = float(value)
+                if math.isfinite(numeric_value):
+                    values.append(numeric_value)
             except (TypeError, ValueError):
                 continue
 
@@ -62,6 +65,20 @@ def _get_y_axis_bounds(rows: list[dict], y_columns: list[str]) -> tuple[float, f
 
 def _get_price_axis_with_interval(min_value: float, max_value: float, interval: int = 100) -> alt.Axis:
     if interval <= 0:
+        return alt.Axis()
+
+    if not math.isfinite(min_value) or not math.isfinite(max_value):
+        return alt.Axis()
+
+    if min_value > max_value:
+        min_value, max_value = max_value, min_value
+
+    value_range = max_value - min_value
+    if value_range <= 0 or not math.isfinite(value_range):
+        return alt.Axis()
+
+    estimated_ticks = int((value_range / interval) + 3)
+    if estimated_ticks <= 0 or estimated_ticks > 400:
         return alt.Axis()
 
     start_value = int(min_value // interval) * interval
@@ -89,7 +106,9 @@ def _get_dynamic_price_interval(rows: list[dict], y_columns: list[str]) -> int:
             if value is None:
                 continue
             try:
-                values.append(float(value))
+                numeric_value = float(value)
+                if math.isfinite(numeric_value):
+                    values.append(numeric_value)
             except (TypeError, ValueError):
                 continue
 
@@ -134,7 +153,7 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
             )
             .interactive()
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
         return
 
     melted = data_frame.melt(id_vars=[x_column], value_vars=y_columns, var_name="model", value_name="value")
@@ -170,7 +189,7 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
         )
         .interactive()
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width='stretch')
 
 
 def write_outputs(rows: list[dict], output_prefix: str) -> tuple[Path, Path]:
@@ -334,7 +353,7 @@ def show_home_page() -> None:
                 }
             )
 
-        st.dataframe(display_rows, use_container_width=True)
+        st.dataframe(display_rows, width='stretch')
 
 
 def show_about_system_page() -> None:
@@ -485,7 +504,7 @@ def show_scrap_page() -> None:
         st.success(f"Done. Rows scraped: {len(rows)}")
         st.write(f"CSV: {csv_path}")
         st.write(f"JSON: {json_path}")
-        st.dataframe(rows, use_container_width=True)
+        st.dataframe(rows, width='stretch')
     except Exception as exc:
         log_activity(
             url=url.strip(),
@@ -683,6 +702,18 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
                 f"Updated {changed_count} value(s) in {CHANGE_COLUMN} and {PERCENT_COLUMN} during cleaning."
             )
 
+    def remove_commas_from_price_column() -> None:
+        changed_count = 0
+        for row in cleaned_rows:
+            raw_value = str(row.get(Y_COLUMN, ""))
+            stripped = raw_value.strip()
+            if "," in stripped:
+                row[Y_COLUMN] = stripped.replace(",", "")
+                changed_count += 1
+        if changed_count > 0:
+            notes.append(f"Removed commas from {changed_count} value(s) in {Y_COLUMN} column.")
+
+    remove_commas_from_price_column()
     replace_if_zero_or_null(target_date=date(2025, 5, 4), source_date=date(2025, 5, 3))
     fill_all_missing_days()
     sorted_rows = _sort_rows_by_date(cleaned_rows)
@@ -738,7 +769,7 @@ def show_dataset_page() -> None:
 
         st.write(f"Rows: {len(rows)}")
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
 
             x_column = X_COLUMN
             y_column = Y_COLUMN
@@ -878,7 +909,7 @@ def show_dataset_page() -> None:
                         tooltip=["month", y_column],
                     )
                 )
-                st.altair_chart(boxplot_chart, use_container_width=True)
+                st.altair_chart(boxplot_chart, width='stretch')
         else:
             st.info("This CSV file is empty.")
     except OSError as exc:
@@ -904,7 +935,7 @@ def show_training_model_page() -> None:
         st.error(f"{selected_model_name} is unavailable: {message}")
         return
 
-    if not st.button("Train Model", use_container_width=True):
+    if not st.button("Train Model", width='stretch'):
         return
 
     dataset_path = CSV_DIR / selected_dataset
@@ -1039,7 +1070,7 @@ def show_model_page() -> None:
     predictions = predict_next_days_from_model(metadata=model, model_dir=MODEL_DIR, days=30)
 
     st.subheader("Next 30 Days Price Prediction")
-    st.dataframe(predictions, use_container_width=True)
+    st.dataframe(predictions, width='stretch')
     render_line_chart(predictions, x_column=x_column, y_columns=[y_column])
 
 
@@ -1127,7 +1158,7 @@ def show_compare_model_page() -> None:
         )
 
     st.subheader("Metrics Comparison")
-    st.dataframe(comparison_rows, use_container_width=True)
+    st.dataframe(comparison_rows, width='stretch')
 
     prediction_series = {}
     algorithm_label_counts: dict[str, int] = {}
@@ -1170,7 +1201,7 @@ def show_history_page() -> None:
         st.info("No activity found in history.json.")
         return
 
-    st.dataframe(list(reversed(history)), use_container_width=True)
+    st.dataframe(list(reversed(history)), width='stretch')
 
 
 def main() -> None:
@@ -1180,21 +1211,21 @@ def main() -> None:
     if "page" not in st.session_state:
         st.session_state["page"] = "Home"
 
-    if st.sidebar.button("Home", use_container_width=True):
+    if st.sidebar.button("Home", width='stretch'):
         st.session_state["page"] = "Home"
-    if st.sidebar.button("Scrap Dataset", use_container_width=True):
+    if st.sidebar.button("Scrap Dataset", width='stretch'):
         st.session_state["page"] = "Scrap"
-    if st.sidebar.button("Dataset", use_container_width=True):
+    if st.sidebar.button("Dataset", width='stretch'):
         st.session_state["page"] = "Dataset"
-    if st.sidebar.button("Traing Model", use_container_width=True):
+    if st.sidebar.button("Traing Model", width='stretch'):
         st.session_state["page"] = "Traing Model"
-    if st.sidebar.button("Model", use_container_width=True):
+    if st.sidebar.button("Model", width='stretch'):
         st.session_state["page"] = "Model"
-    if st.sidebar.button("Compare Model", use_container_width=True):
+    if st.sidebar.button("Compare Model", width='stretch'):
         st.session_state["page"] = "Compare Model"
-    if st.sidebar.button("About System", use_container_width=True):
+    if st.sidebar.button("About System", width='stretch'):
         st.session_state["page"] = "About System"
-    # if st.sidebar.button("History", use_container_width=True):
+    # if st.sidebar.button("History", width='stretch'):
     #     st.session_state["page"] = "History"
 
     page = st.session_state["page"]

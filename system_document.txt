@@ -1,0 +1,289 @@
+CPP - Crop Price Prediction System Document
+==========================================
+
+1) Intro
+--------
+CPP (Crop Price Prediction) is a Streamlit-based application for:
+- Collecting crop market price data from Agrosight
+- Cleaning and standardizing dataset quality
+- Training multiple machine learning/time-series models
+- Saving model artifacts + metadata
+- Predicting future crop prices
+- Comparing model performance by algorithm
+- Presenting knowledge through tables and charts
+
+Main purpose:
+To support data-driven decision making for crop price forecasting using historical market records.
+
+
+2) System Architecture (High Level)
+-----------------------------------
+Core modules:
+- streamlit_app.py
+	Main web UI, page routing, data visualization, dataset cleaning workflow, model operations.
+
+- agrosight_scraper.py
+	Scraping utilities to extract table rows from Agrosight and output structured records.
+
+- training_model.py
+	Data parsing, feature generation, model training, metric calculation, model save/load, forecasting logic.
+
+Data and artifacts:
+- dataset/csv/      : CSV datasets
+- dataset/json/     : JSON datasets
+- Model/            : Trained model files + metadata (.meta.json)
+- history.json      : Scraping activity log
+
+
+3) Scrap Data (Data Collection)
+-------------------------------
+Page: Scrap Dataset
+
+Input:
+- URL (Agrosight page)
+- Max Page
+- Output Prefix (optional)
+
+Process:
+- Calls scraper to crawl one or more pages.
+- Extracts table columns (serial, item, market, date, weight, price, change, percent).
+- Writes outputs to:
+	- CSV (dataset/csv)
+	- JSON (dataset/json)
+- Logs run status in history.json (success/fail, rows count, file paths, error if any).
+
+Output:
+- Cleanly structured raw dataset files ready for review/cleaning/training.
+
+
+4) Data Cleaning
+----------------
+Page: Dataset
+
+Cleaning state includes rule-based corrections such as:
+- Null/zero repair for specific historical edge case dates.
+- Missing-date filling across the dataset date range (using previous day row logic).
+- Serial column normalization (စဥ်/စဉ်) to sequential ordering when needed.
+- Change/percent normalization rules:
+	- Replace '-' with numeric defaults
+	- Ensure first row base values are valid
+	- Recompute daily change values using day-to-day price difference
+
+Date format handling:
+- Preserves original date style as much as possible when creating missing rows.
+
+Visualization in dataset page:
+- Preview table
+- Filter by date range
+- Line chart (adaptive interval)
+- Monthly boxplot
+
+
+5) Feature Definition for Model Training
+----------------------------------------
+Training is based on 4 columns:
+- နေ့စွဲ (Date)
+- စျေးနှုန်း (မြန်မာကျပ်) (Target Price)
+- အတက်/အကျ (Daily Change)
+- % (Percent Change)
+
+Typical model feature representation:
+- day_index (derived from date)
+- change_value
+- percent_value
+
+Target:
+- price value
+
+
+6) Training Model (Algorithms, Pros & Cons)
+-------------------------------------------
+Page: Traing Model
+
+Supported algorithms:
+
+6.1) XGBoost Regressor
+- Type: Gradient-boosted decision trees
+- Strengths:
+	- Strong predictive accuracy
+	- Works well for non-linear relationships
+	- Mature ecosystem
+- Limitations:
+	- More hyperparameters to tune
+	- Can be slower than LightGBM on large datasets
+
+6.2) LightGBM Regressor
+- Type: Histogram-based gradient boosting trees
+- Strengths:
+	- Very fast training
+	- Efficient on large data
+	- Good baseline for speed-performance balance
+- Limitations:
+	- Can overfit small/noisy data without careful settings
+
+6.3) CatBoostRegressor
+- Type: Gradient boosting with ordered boosting
+- Strengths:
+	- Stable performance with good defaults
+	- Often robust with limited tuning
+- Limitations:
+	- Training may be slower than LightGBM
+	- Larger model files in some cases
+
+6.4) SARIMA + ElasticNet (Hybrid)
+- Type: Time-series + regularized regression combination
+- Strengths:
+	- Better interpretability
+	- Captures temporal trend/structure
+	- Useful as explainable baseline
+- Limitations:
+	- Less flexible for highly non-linear patterns
+	- Sensitive to order/parameter choices
+
+Training outputs:
+- Model artifact file (.ubj/.txt/.cbm/.pkl)
+- Metadata (.meta.json)
+- Metrics:
+	- Accuracy (%)
+	- R²
+	- MAE
+	- RMSE
+	- MAPE (%)
+- Actual vs Predicted line chart for training dataset
+
+Metric Details (Important for Evaluation):
+
+1) Accuracy (%)
+- In this project, accuracy is derived from MAPE as:
+	Accuracy = max(0, 100 - MAPE)
+- Meaning:
+	Higher is better. It gives an easy percentage-style score.
+- Notes:
+	This is not classification accuracy; it is a transformed regression error indicator.
+	Use together with MAE/RMSE/MAPE for reliable interpretation.
+
+2) R² (Coefficient of Determination)
+- Formula concept:
+	R² = 1 - (Residual Sum of Squares / Total Sum of Squares)
+- Meaning:
+	How well predictions explain variance in actual prices.
+- Typical interpretation:
+	- Near 1.0  : very good fit
+	- Around 0  : model explains little variance
+	- Below 0   : model performs worse than predicting mean
+- Notes:
+	Useful for fit quality, but can be misleading alone when outliers/noise are large.
+
+3) MAE (Mean Absolute Error)
+- Formula:
+	MAE = average(|actual - predicted|)
+- Unit:
+	Same as price (MMK)
+- Meaning:
+	Average absolute deviation from true price.
+- Why important:
+	Easy to understand operationally (e.g., "average error is 800 MMK").
+	Less sensitive to large outliers than RMSE.
+
+4) RMSE (Root Mean Squared Error)
+- Formula:
+	RMSE = sqrt(average((actual - predicted)^2))
+- Unit:
+	Same as price (MMK)
+- Meaning:
+	Error metric that penalizes large mistakes more heavily than MAE.
+- Why important:
+	Good when large misses are costly in business decisions.
+	If RMSE is much larger than MAE, large-error spikes likely exist.
+
+5) MAPE (%) (Mean Absolute Percentage Error)
+- Formula:
+	MAPE = average(|(actual - predicted) / actual|) * 100
+- Meaning:
+	Average percentage error relative to actual price.
+- Why important:
+	Scale-independent and easy to compare across datasets with different price levels.
+- Caution:
+	When actual values are near zero, MAPE can become unstable or inflated.
+	Project logic avoids division by zero rows in MAPE calculation.
+
+How to Read Metrics Together:
+- Prefer models with lower MAE, RMSE, MAPE and higher R², Accuracy.
+- If two models have similar MAE, choose lower RMSE when reducing large spikes is priority.
+- If dataset scales differ, compare MAPE first, then MAE/RMSE.
+- Always validate with Actual vs Predicted plot, not metrics only.
+
+Practical Selection Guideline (for this project):
+- Step 1: Remove clearly weak models (very low/negative R²).
+- Step 2: Compare MAPE and MAE for overall consistency.
+- Step 3: Use RMSE as tie-breaker to reduce big mistakes.
+- Step 4: Check forecast curve behavior in next-30-day chart before final choice.
+
+
+7) Model Page (Single Model Analysis)
+-------------------------------------
+Page: Model
+
+Capabilities:
+- Load one trained model + metadata
+- Display metadata and metrics
+- Show actual vs predicted (training dataset) plot (if data/model available)
+- Predict next 30 days
+- Show prediction table + line graph
+
+
+8) Compare Model (By Algorithm)
+-------------------------------
+Page: Compare Model
+
+Flow:
+- Select one dataset
+- Select multiple models trained on the same dataset
+- Compare metrics side-by-side
+- Compare next 30-day prediction series in one chart
+
+Objective:
+- Identify best-performing algorithm for the chosen dataset using consistent metrics.
+
+
+9) Knowledge Presentation
+-------------------------
+Knowledge is presented through:
+- Cleaned dataset preview tables
+- Line charts and monthly boxplots
+- Training metrics
+- Actual vs Predicted trend visualization
+- Multi-model comparison tables/charts
+- 30-day forecast outputs
+
+This enables users to interpret both data quality and model behavior, not just raw prediction numbers.
+
+
+10) Data Mining Lifecycle Mapping
+---------------------------------
+This project follows a practical mining pipeline:
+1. Data Collection (Scraping)
+2. Data Cleaning
+3. Data Selection (page filters/dataset selection)
+4. Data Transformation (feature engineering and date indexing)
+5. Data Mining (model training)
+6. Pattern Evaluation (metrics and comparison)
+7. Knowledge Presentation (visualizations + summaries)
+
+
+11) Operational Notes
+---------------------
+- Install dependencies from requirement.txt.
+- Keep model artifact and matching metadata together in Model/.
+- Use cleaned datasets before retraining for more stable performance.
+- Re-train and compare multiple algorithms regularly as new data arrives.
+
+
+12) Future Improvements (Optional)
+----------------------------------
+- Add automated hyperparameter tuning.
+- Add train/validation/test split reports in UI.
+- Add feature importance view (tree models).
+- Add exportable experiment report (CSV/PDF).
+- Add drift monitoring for incoming market data.
+
