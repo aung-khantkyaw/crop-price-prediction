@@ -11,8 +11,12 @@ import streamlit as st
 from agrosight_scraper import OUTPUT_COLUMNS, infer_output_prefix, safe_filename, scrape
 from training_model import (
     DATE_FORMATS,
+    FEATURE_COLUMNS,
+    PRICE_DIFF_COLUMN,
     X_COLUMN,
     Y_COLUMN,
+    _build_raw_feature_rows,
+    build_training_features,
     get_training_model_options,
     get_training_fit_rows,
     is_training_model_available,
@@ -35,6 +39,75 @@ MODEL_DIR = BASE_DIR / "Model"
 SERIAL_COLUMNS = ("စဥ်", "စဉ်")
 CHANGE_COLUMN = "အတက်/အကျ"
 PERCENT_COLUMN = "%"
+DATE_COLUMN_ALIASES = (X_COLUMN, "နေစွဲ", "ရက်စွဲ", "date", "datetime")
+PRICE_COLUMN_ALIASES = (Y_COLUMN, "ဈေးနှုန်း (မြန်မာကျပ်)", "ဈေးနှုန်း", "စျေးနှုန်း", "price")
+
+
+def _resolve_column_name(rows: list[dict], candidates: tuple[str, ...], fallback: str) -> str:
+    if not rows:
+        return fallback
+
+    for candidate in candidates:
+        if any(candidate in row for row in rows):
+            return candidate
+
+    normalized_candidates = {candidate.strip().lower() for candidate in candidates}
+    for row in rows:
+        for key in row.keys():
+            normalized_key = str(key).strip().lower()
+            if normalized_key in normalized_candidates:
+                return key
+
+    return fallback
+
+
+def _parse_date_value_fallback(raw_value: str) -> date | None:
+    parsed_date = parse_date_value(raw_value)
+    if parsed_date is not None:
+        return parsed_date
+
+    try:
+        parsed_timestamp = pd.to_datetime(raw_value, errors="coerce")
+    except Exception:
+        return None
+
+    if pd.isna(parsed_timestamp):
+        return None
+    return parsed_timestamp.date()
+
+
+def _align_metadata_with_dataset_tail(metadata: dict) -> dict:
+    aligned = dict(metadata)
+    dataset_name = str(aligned.get("dataset_file", "")).strip()
+    if not dataset_name:
+        return aligned
+
+    dataset_path = CSV_DIR / dataset_name
+    if not dataset_path.exists():
+        return aligned
+
+    try:
+        points = load_dataset_points(dataset_path)
+    except Exception:
+        return aligned
+
+    if not points:
+        return aligned
+
+    last_point = points[-1]
+    aligned["last_date"] = last_point[0].isoformat()
+    aligned["last_observed_price"] = float(last_point[1])
+    aligned["last_observed_change"] = float(last_point[2])
+    aligned["last_observed_percent"] = float(last_point[3])
+    aligned["last_observed_price_diff"] = float(last_point[4])
+    aligned["recent_prices"] = [float(point[1]) for point in points[-30:]]
+    aligned["recent_feature_rows_raw"] = [
+        [float(value) for value in row]
+        for row in _build_raw_feature_rows(points, FEATURE_COLUMNS)[-30:]
+    ]
+    if not str(aligned.get("origin_date", "")).strip():
+        aligned["origin_date"] = points[0][0].isoformat()
+    return aligned
 
 
 def _get_y_axis_bounds(rows: list[dict], y_columns: list[str]) -> tuple[float, float] | None:
@@ -134,7 +207,7 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
             )
             .interactive()
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
         return
 
     melted = data_frame.melt(id_vars=[x_column], value_vars=y_columns, var_name="model", value_name="value")
@@ -170,7 +243,7 @@ def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> 
         )
         .interactive()
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width='stretch')
 
 
 def write_outputs(rows: list[dict], output_prefix: str) -> tuple[Path, Path]:
@@ -263,7 +336,8 @@ def show_home_page() -> None:
 
         try:
             metadata = load_model_metadata(metadata_path)
-            last_date = date.fromisoformat(str(metadata["last_date"]))
+            effective_metadata = _align_metadata_with_dataset_tail(metadata)
+            last_date = date.fromisoformat(str(effective_metadata["last_date"]))
         except Exception:
             continue
 
@@ -276,11 +350,13 @@ def show_home_page() -> None:
             days = (today - last_date).days
             note = "Today forecast"
 
+        prediction_status = "OK"
         try:
-            predictions = predict_next_days_from_model(metadata=metadata, model_dir=MODEL_DIR, days=days)
-            predicted_price = predictions[-1][Y_COLUMN] if predictions else "N/A"
+            predictions = predict_next_days_from_model(metadata=effective_metadata, model_dir=MODEL_DIR, days=days)
+            predicted_price = float(predictions[-1][Y_COLUMN]) if predictions else None
         except Exception as exc:
-            predicted_price = f"Error: {exc}"
+            predicted_price = None
+            prediction_status = f"Error: {exc}"
 
         prediction_rows.append(
             {
@@ -290,6 +366,7 @@ def show_home_page() -> None:
                 "prediction_date": prediction_date.isoformat(),
                 "predicted_price": predicted_price,
                 "note": note,
+                "status": prediction_status,
             }
         )
 
@@ -329,12 +406,15 @@ def show_home_page() -> None:
                     "model": row.get("model", "N/A"),
                     "algorithm": row.get("algorithm", "N/A"),
                     "prediction_date": row.get("prediction_date", "N/A"),
-                    "predicted_price": row.get("predicted_price", "N/A"),
+                    "predicted_price": row.get("predicted_price"),
                     "note": row.get("note", "N/A"),
+                    "status": row.get("status", "OK"),
                 }
             )
 
-        st.dataframe(display_rows, use_container_width=True)
+        display_df = pd.DataFrame(display_rows)
+        display_df["predicted_price"] = pd.to_numeric(display_df["predicted_price"], errors="coerce")
+        st.dataframe(display_df, width='stretch')
 
 
 def show_about_system_page() -> None:
@@ -351,7 +431,7 @@ def show_about_system_page() -> None:
     st.markdown("- Scrape crop price table data from Agrosight URLs")
     st.markdown("- Save outputs to CSV and JSON")
     st.markdown("- Keep activity logs in `history.json`")
-    st.markdown("- Read, clean, and visualize datasets")
+    st.markdown("- Read, preprocess, and visualize datasets")
     st.markdown("- Train multiple forecasting algorithms")
     st.markdown("- Predict next 30 days prices")
     st.markdown("- Compare models trained on the same dataset")
@@ -368,7 +448,7 @@ def show_about_system_page() -> None:
 
     st.markdown("### Dataset")
     st.markdown("- Select CSV file")
-    st.markdown("- Data Cleaning State with save-to-CSV action")
+    st.markdown("- Data Preprocessing State with save-to-CSV action")
     st.markdown("- Replace missing/zero price on 04/05/2025 from 03/05/2025")
     st.markdown("- Fill missing days across full date range using previous day row")
     st.markdown("- Fix `စဥ်/စဉ်` serial column to sequential values when needed")
@@ -485,7 +565,7 @@ def show_scrap_page() -> None:
         st.success(f"Done. Rows scraped: {len(rows)}")
         st.write(f"CSV: {csv_path}")
         st.write(f"JSON: {json_path}")
-        st.dataframe(rows, use_container_width=True)
+        st.dataframe(rows, width='stretch')
     except Exception as exc:
         log_activity(
             url=url.strip(),
@@ -500,8 +580,9 @@ def show_scrap_page() -> None:
 def _sort_rows_by_date(rows: list[dict]) -> list[dict]:
     dated_rows: list[tuple[date, dict]] = []
     undated_rows: list[dict] = []
+    date_column = _resolve_column_name(rows, DATE_COLUMN_ALIASES, X_COLUMN)
     for row in rows:
-        parsed_date = parse_date_value(str(row.get(X_COLUMN, "")))
+        parsed_date = _parse_date_value_fallback(str(row.get(date_column, "")))
         if parsed_date is None:
             undated_rows.append(row)
             continue
@@ -513,8 +594,9 @@ def _sort_rows_by_date(rows: list[dict]) -> list[dict]:
 
 def _infer_date_format(rows: list[dict]) -> str:
     format_counter: Counter[str] = Counter()
+    date_column = _resolve_column_name(rows, DATE_COLUMN_ALIASES, X_COLUMN)
     for row in rows:
-        raw_date = str(row.get(X_COLUMN, "")).strip()
+        raw_date = str(row.get(date_column, "")).strip()
         if not raw_date:
             continue
 
@@ -548,11 +630,13 @@ def _format_numeric_string(value: float) -> str:
 def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
     cleaned_rows = [dict(row) for row in rows]
     notes: list[str] = []
+    date_column = _resolve_column_name(cleaned_rows, DATE_COLUMN_ALIASES, X_COLUMN)
+    price_column = _resolve_column_name(cleaned_rows, PRICE_COLUMN_ALIASES, Y_COLUMN)
     date_format = _infer_date_format(cleaned_rows)
 
     rows_by_date: dict[date, dict] = {}
     for row in cleaned_rows:
-        parsed_date = parse_date_value(str(row.get(X_COLUMN, "")))
+        parsed_date = _parse_date_value_fallback(str(row.get(date_column, "")))
         if parsed_date is None:
             continue
         rows_by_date[parsed_date] = row
@@ -563,14 +647,14 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
         if target_row is None or source_row is None:
             return
 
-        target_price = parse_price_value(str(target_row.get(Y_COLUMN, "")))
-        source_price_raw = str(source_row.get(Y_COLUMN, "")).strip()
+        target_price = parse_price_value(str(target_row.get(price_column, "")))
+        source_price_raw = str(source_row.get(price_column, "")).strip()
         source_price = parse_price_value(source_price_raw)
         if source_price is None:
             return
 
         if target_price is None or target_price == 0:
-            target_row[Y_COLUMN] = source_price_raw
+            target_row[price_column] = source_price_raw
             notes.append(
                 f"Replaced {target_date.strftime('%d/%m/%Y')} price with {source_date.strftime('%d/%m/%Y')} price."
             )
@@ -591,7 +675,7 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
                 source_row = rows_by_date.get(source_date)
                 if source_row is not None:
                     new_row = dict(source_row)
-                    new_row[X_COLUMN] = cursor.strftime(date_format)
+                    new_row[date_column] = cursor.strftime(date_format)
                     cleaned_rows.append(new_row)
                     rows_by_date[cursor] = new_row
                     filled_count += 1
@@ -630,7 +714,7 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
         previous_price: float | None = None
 
         for index, row in enumerate(sorted_rows):
-            current_price = parse_price_value(str(row.get(Y_COLUMN, "")))
+            current_price = parse_price_value(str(row.get(price_column, "")))
             raw_change = str(row.get(CHANGE_COLUMN, "")).strip()
             raw_percent = str(row.get(PERCENT_COLUMN, "")).strip()
 
@@ -680,14 +764,46 @@ def _apply_dataset_cleaning(rows: list[dict]) -> tuple[list[dict], list[str]]:
 
         if changed_count > 0:
             notes.append(
-                f"Updated {changed_count} value(s) in {CHANGE_COLUMN} and {PERCENT_COLUMN} during cleaning."
+                f"Updated {changed_count} value(s) in {CHANGE_COLUMN} and {PERCENT_COLUMN} during preprocessing."
             )
+
+    def normalize_datetime_and_price(sorted_rows: list[dict]) -> None:
+        datetime_updates = 0
+        price_updates = 0
+
+        for row in sorted_rows:
+            parsed_date = _parse_date_value_fallback(str(row.get(date_column, "")))
+            if parsed_date is not None:
+                normalized_datetime = datetime.combine(parsed_date, datetime.min.time()).isoformat(sep=" ")
+                if str(row.get(date_column, "")).strip() != normalized_datetime:
+                    row[date_column] = normalized_datetime
+                    datetime_updates += 1
+
+            parsed_price = parse_price_value(str(row.get(price_column, "")))
+            if parsed_price is None:
+                continue
+
+            existing_value = row.get(price_column)
+            try:
+                has_same_value = float(existing_value) == float(parsed_price)
+            except (TypeError, ValueError):
+                has_same_value = False
+
+            if not has_same_value:
+                row[price_column] = float(parsed_price)
+                price_updates += 1
+
+        if datetime_updates > 0:
+            notes.append(f"Converted {datetime_updates} date value(s) in {date_column} to datetime format.")
+        if price_updates > 0:
+            notes.append(f"Removed separators and converted {price_updates} value(s) in {price_column} to float.")
 
     replace_if_zero_or_null(target_date=date(2025, 5, 4), source_date=date(2025, 5, 3))
     fill_all_missing_days()
     sorted_rows = _sort_rows_by_date(cleaned_rows)
     clean_price_change_column(sorted_rows)
     fix_duplicate_serial_numbers(sorted_rows)
+    normalize_datetime_and_price(sorted_rows)
     return sorted_rows, notes
 
 
@@ -722,26 +838,26 @@ def show_dataset_page() -> None:
 
         cleaned_rows, cleaning_notes = _apply_dataset_cleaning(rows)
 
-        st.subheader("Data Cleaning State")
+        st.subheader("Data Preprocessing State")
         if cleaning_notes:
-            st.info(f"Applied {len(cleaning_notes)} cleaning change(s).")
+            st.info(f"Applied {len(cleaning_notes)} preprocessing change(s).")
             for note in cleaning_notes:
                 st.write(f"- {note}")
-            if st.button("Save Cleaned Data to CSV", key=f"save_cleaned_{selected_file_name}"):
+            if st.button("Save Preprocessed Data to CSV", key=f"save_cleaned_{selected_file_name}"):
                 _write_cleaned_csv(selected_file, fieldnames, cleaned_rows)
-                st.success(f"Saved cleaned data to {selected_file.name}")
+                st.success(f"Saved preprocessed data to {selected_file.name}")
                 st.rerun()
         else:
-            st.success("No cleaning changes needed for the selected dataset.")
+            st.success("No preprocessing changes needed for the selected dataset.")
 
         rows = cleaned_rows
 
         st.write(f"Rows: {len(rows)}")
         if rows:
-            st.dataframe(rows, use_container_width=True)
+            st.dataframe(rows, width='stretch')
 
-            x_column = X_COLUMN
-            y_column = Y_COLUMN
+            x_column = _resolve_column_name(rows, DATE_COLUMN_ALIASES, X_COLUMN)
+            y_column = _resolve_column_name(rows, PRICE_COLUMN_ALIASES, Y_COLUMN)
 
             item_name = str(rows[0].get("အမျိုးအမည်", "")).strip()
             market_name = str(rows[0].get("ကုန်စည်ဒိုင်", "")).strip()
@@ -757,7 +873,7 @@ def show_dataset_page() -> None:
                 if not raw_date:
                     continue
 
-                parsed_date = parse_date_value(raw_date)
+                parsed_date = _parse_date_value_fallback(raw_date)
 
                 if parsed_date is not None:
                     parsed_rows.append((parsed_date, row))
@@ -878,7 +994,7 @@ def show_dataset_page() -> None:
                         tooltip=["month", y_column],
                     )
                 )
-                st.altair_chart(boxplot_chart, use_container_width=True)
+                st.altair_chart(boxplot_chart, width='stretch')
         else:
             st.info("This CSV file is empty.")
     except OSError as exc:
@@ -898,19 +1014,57 @@ def show_training_model_page() -> None:
     selected_dataset = st.selectbox("Select Dataset", options=[f.name for f in csv_files])
     selected_model_name = st.selectbox("Select Model", options=get_training_model_options())
     model_name_input = st.text_input("Model Name (optional)")
+    dataset_path = CSV_DIR / selected_dataset
+
+    preview_points: list[tuple[date, float, float, float, float]] = []
+    raw_row_count = 0
+    try:
+        with dataset_path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            raw_rows = list(reader)
+            raw_row_count = len(raw_rows)
+        preview_points = load_dataset_points(dataset_path)
+    except OSError as exc:
+        st.warning(f"Could not preview dataset format: {exc}")
+
+    st.subheader("Training Dataset Format")
+    st.write(f"Dataset: {selected_dataset}")
+    st.write(f"Raw rows: {raw_row_count}")
+    st.write(f"Valid rows for training: {len(preview_points)}")
+
+    if preview_points:
+        st.write("Training Data Sample (Parsed)")
+        feature_values = _build_raw_feature_rows(preview_points, FEATURE_COLUMNS)
+        sample_rows = [
+            {
+                X_COLUMN: datetime.combine(point_date, datetime.min.time()).isoformat(sep=" "),
+                Y_COLUMN: float(price),
+                PRICE_DIFF_COLUMN: float(price_diff),
+                **{feature_name: float(feature_row[index]) for index, feature_name in enumerate(FEATURE_COLUMNS)},
+            }
+            for (point_date, price, _, _, price_diff), feature_row in zip(preview_points, feature_values)
+        ]
+        st.dataframe(sample_rows, width='stretch')
+    else:
+        st.info("No valid parsed rows available to preview training dataset format.")
 
     available, message = is_training_model_available(selected_model_name)
     if not available:
         st.error(f"{selected_model_name} is unavailable: {message}")
         return
 
-    if not st.button("Train Model", use_container_width=True):
+    if not st.button("Train Model", width='stretch'):
         return
 
-    dataset_path = CSV_DIR / selected_dataset
-
     try:
-        points = load_dataset_points(dataset_path)
+        points = preview_points or load_dataset_points(dataset_path)
+        if len(points) < 3:
+            st.error(
+                f"Model training failed: only {len(points)} valid row(s) detected. "
+                "Please verify date and price columns in the selected CSV (minimum 3 rows required for 80/20 split)."
+            )
+            return
+
         model, training_info = train_selected_model_from_points(points, selected_model_name)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -928,7 +1082,8 @@ def show_training_model_page() -> None:
         st.write(f"Model file: {model_path}")
         st.write(f"Metadata file: {metadata_path}")
         st.write(f"Algorithm: {model_payload.get('model_display_name', selected_model_name)}")
-        st.write(f"Training rows: {training_info['train_size']}")
+        st.write(f"Train rows: {training_info['train_size']}")
+        st.write(f"Test rows: {training_info.get('test_size', 'N/A')}")
         st.subheader("Training Metrics")
         st.write(f"Accuracy (%): {model_payload['metrics']['accuracy_percent']}")
         st.write(f"R²: {model_payload['metrics']['r2']}")
@@ -940,6 +1095,7 @@ def show_training_model_page() -> None:
             points=points,
             model=model,
             model_type=str(training_info.get("model_type", "")),
+            feature_columns=[str(value) for value in training_info.get("feature_columns", [])],
         )
         if fit_rows:
             st.subheader("Actual vs Predicted (Training Dataset)")
@@ -1003,7 +1159,8 @@ def show_model_page() -> None:
         st.write(f"Algorithm: {model.get('model_display_name', model.get('model_type', 'N/A'))}")
         st.write(f"Dataset: {model.get('dataset_file', 'N/A')}")
         st.write(f"Created At: {model.get('created_at', 'N/A')}")
-        st.write(f"Training Rows: {model.get('train_size', 'N/A')}")
+        st.write(f"Train Rows: {model.get('train_size', 'N/A')}")
+        st.write(f"Test Rows: {model.get('test_size', 'N/A')}")
 
         if not metric_data:
             st.info("Metrics are not available for this model metadata.")
@@ -1028,6 +1185,7 @@ def show_model_page() -> None:
                     points=training_points,
                     model=model_object,
                     model_type=str(model.get("model_type", "")),
+                    feature_columns=[str(value) for value in model.get("feature_columns", [])],
                 )
                 if fit_rows:
                     render_line_chart(fit_rows, x_column=X_COLUMN, y_columns=["Actual", "Predicted"])
@@ -1036,10 +1194,15 @@ def show_model_page() -> None:
             except Exception as exc:
                 st.info(f"Could not generate training fit plot: {exc}")
 
-    predictions = predict_next_days_from_model(metadata=model, model_dir=MODEL_DIR, days=30)
+    effective_model = _align_metadata_with_dataset_tail(model)
+    predictions = predict_next_days_from_model(
+        metadata=effective_model,
+        model_dir=MODEL_DIR,
+        days=30,
+    )
 
     st.subheader("Next 30 Days Price Prediction")
-    st.dataframe(predictions, use_container_width=True)
+    st.dataframe(predictions, width='stretch')
     render_line_chart(predictions, x_column=x_column, y_columns=[y_column])
 
 
@@ -1127,14 +1290,19 @@ def show_compare_model_page() -> None:
         )
 
     st.subheader("Metrics Comparison")
-    st.dataframe(comparison_rows, use_container_width=True)
+    st.dataframe(comparison_rows, width='stretch')
 
     prediction_series = {}
     algorithm_label_counts: dict[str, int] = {}
     all_dates = set()
     for item in selected_models:
         try:
-            predictions = predict_next_days_from_model(metadata=item, model_dir=MODEL_DIR, days=30)
+            effective_item = _align_metadata_with_dataset_tail(item)
+            predictions = predict_next_days_from_model(
+                metadata=effective_item,
+                model_dir=MODEL_DIR,
+                days=30,
+            )
         except Exception as exc:
             st.error(f"Prediction failed for {item.get('model_name', 'N/A')}: {exc}")
             continue
@@ -1170,7 +1338,7 @@ def show_history_page() -> None:
         st.info("No activity found in history.json.")
         return
 
-    st.dataframe(list(reversed(history)), use_container_width=True)
+    st.dataframe(list(reversed(history)), width='stretch')
 
 
 def main() -> None:
@@ -1180,21 +1348,21 @@ def main() -> None:
     if "page" not in st.session_state:
         st.session_state["page"] = "Home"
 
-    if st.sidebar.button("Home", use_container_width=True):
+    if st.sidebar.button("Home", width='stretch'):
         st.session_state["page"] = "Home"
-    if st.sidebar.button("Scrap Dataset", use_container_width=True):
+    if st.sidebar.button("Scrap Dataset", width='stretch'):
         st.session_state["page"] = "Scrap"
-    if st.sidebar.button("Dataset", use_container_width=True):
+    if st.sidebar.button("Dataset", width='stretch'):
         st.session_state["page"] = "Dataset"
-    if st.sidebar.button("Traing Model", use_container_width=True):
+    if st.sidebar.button("Traing Model", width='stretch'):
         st.session_state["page"] = "Traing Model"
-    if st.sidebar.button("Model", use_container_width=True):
+    if st.sidebar.button("Model", width='stretch'):
         st.session_state["page"] = "Model"
-    if st.sidebar.button("Compare Model", use_container_width=True):
+    if st.sidebar.button("Compare Model", width='stretch'):
         st.session_state["page"] = "Compare Model"
-    if st.sidebar.button("About System", use_container_width=True):
+    if st.sidebar.button("About System", width='stretch'):
         st.session_state["page"] = "About System"
-    # if st.sidebar.button("History", use_container_width=True):
+    # if st.sidebar.button("History", width='stretch'):
     #     st.session_state["page"] = "History"
 
     page = st.session_state["page"]

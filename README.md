@@ -1,166 +1,132 @@
-# CPP - Crop Price Prediction
+﻿# CPP - Crop Price Prediction
 
-CPP is a Streamlit-based application for scraping crop price data from Agrosight, managing datasets, training forecasting models, and comparing model predictions.
+CPP is a Streamlit application for scraping crop price data from Agrosight, preprocessing datasets, training forecasting models, and comparing model outputs.
 
 ## Data Source
 
-All datasets are collected from:
-
 - https://agrosightinfo.com/
-
----
 
 ## Features
 
-- Scrape crop price table data from Agrosight URLs
-- Save outputs to CSV and JSON
-- Keep activity logs in `history.json`
-- Read, clean, and visualize datasets
-- Train multiple forecasting algorithms
-- Predict next 30 days prices
-- Compare models trained on the same dataset
-
----
+- Scrape crop price tables from Agrosight URLs.
+- Save scraped results to both CSV and JSON.
+- Track scraping activity in `history.json`.
+- Preprocess datasets and apply consistency fixes.
+- Visualize prices with line charts and monthly boxplots.
+- Train multiple forecasting algorithms.
+- Predict the next 30 days of prices.
+- Compare metrics and forecast curves across models.
 
 ## Project Structure
 
-- `streamlit_app.py` – Main Streamlit web UI
-- `agrosight_scraper.py` – Scraping utilities
-- `training_model.py` – Model training and prediction logic
-- `dataset/csv/` – Scraped CSV datasets
-- `dataset/json/` – Scraped JSON datasets
-- `Model/` – Trained model artifacts + metadata
-- `history.json` – Scraping activity history
-- `requirement.txt` – Python dependencies
-
----
+- `streamlit_app.py`: main Streamlit UI and page flow.
+- `agrosight_scraper.py`: scraping logic and URL/output helpers.
+- `training_model.py`: data parsing, feature engineering, training, forecasting, and model I/O.
+- `dataset/csv/`: scraped or preprocessed CSV datasets.
+- `dataset/json/`: scraped JSON datasets.
+- `Model/`: trained model artifacts and metadata files.
+- `history.json`: scrape execution history.
+- `requirement.txt`: Python dependencies.
+- `SYSTEM_OVERVIEW.md`: end-to-end project architecture and workflow.
+- `PROJECT_DOCUMENTATION.md`: formal project documentation (abstract, introduction, objective, requirements, theory, conclusion, references).
 
 ## Installation
 
-1. Create and activate virtual environment (optional but recommended).
+1. Create a virtual environment (recommended).
 2. Install dependencies:
 
 ```bash
 py -m pip install -r requirement.txt
 ```
 
----
-
-## Run Application
+## Run
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-If `streamlit` command is not found, use:
+If `streamlit` is not on `PATH`:
 
 ```bash
 py -m streamlit run streamlit_app.py
 ```
 
----
-
 ## App Pages
 
 ### Home
 
-Project overview, workflow explanation, model options, and comparison flow.
+- Lists trained models and per-dataset forecast summary.
+- Shows a "today forecast" if today is after the dataset end date.
+- Shows a "next day forecast" if dataset already includes today.
 
 ### Scrap Dataset
 
-- Input:
-  - URL
-  - Max Page
-  - Output Prefix (optional)
-- Output:
-  - CSV file in `dataset/csv`
-  - JSON file in `dataset/json`
-- Logs action to `history.json`
+- Inputs: URL, max page, optional output prefix.
+- Outputs:
+  - CSV in `dataset/csv/`
+  - JSON in `dataset/json/`
+- Logs success/failure in `history.json`.
 
 ### Dataset
 
-- Select CSV file
-- Data Cleaning State with save-to-CSV action
-- Cleaning rules:
-  - If `04/05/2025` price is `0` or null, replace with `03/05/2025` price
-  - Fill all missing days in the CSV date range using previous day row
-  - Keep inserted dates in the same format as the original dataset
-  - Fix duplicate/invalid serial values in `စဥ်` / `စဉ်` to sequential `1..N`
-  - Normalize `အတက်/အကျ` and `%` columns (`-` → `0` and `0.00%`, including row no.1)
-  - Recalculate `အတက်/အကျ` from day-to-day price difference (`today - yesterday`)
-- Preview dataset table
-- Filter by date range
-- Line graph behavior:
-  - Uses date (`နေ့စွဲ`) and price (`စျေးနှုန်း (မြန်မာကျပ်)`)
-  - Interval adapts by selected range (daily / weekly / every 15 days)
-  - Y-axis range is always:
-  - Start = `min_price - 1000`
-  - End = `max_price + 1000`
+- Loads selected CSV and applies preprocessing rules:
+  - Replace `2025-05-04` price with `2025-05-03` if target is zero/null.
+  - Fill missing dates in the full observed range using previous day values.
+  - Reorder serial column to sequential values when needed.
+  - Normalize change/percent columns (`-` to numeric defaults where needed).
+  - Normalize date to datetime string format and price to float.
+- Shows preprocessing notes and allows saving back to CSV.
+- Supports date-range filtering.
+- Displays:
+  - interval-based line chart
+  - monthly price boxplot
 
 ### Traing Model
 
-Train model from selected dataset and algorithm.
-
-Training is based on 4 columns:
-
-- `နေ့စွဲ`
-- `စျေးနှုန်း (မြန်မာကျပ်)`
-- `အတက်/အကျ`
-- `%`
-
-Supported algorithms:
-
-- XGBoost Regressor
-- LightGBM Regressor
-- CatBoostRegressor
-- SARIMA + ElasticNet
-
-Training output includes:
-
-- Model artifact in `Model/`
-- Metadata file (`.meta.json`) in `Model/`
-- Metrics:
-  - Accuracy (%), R², MAE, RMSE, MAPE
+- Select dataset and algorithm.
+- Displays parsed row counts and training feature preview.
+- Trains one of:
+  - XGBoost Regressor
+  - LightGBM Regressor
+  - CatBoostRegressor
+  - SARIMA + ElasticNet
+- Saves:
+  - model artifact in `Model/`
+  - metadata in `Model/*.meta.json`
+- Shows metrics: Accuracy, R2, MAE, RMSE, MAPE.
+- Shows training "Actual vs Predicted" chart.
 
 ### Model
 
-- Select model artifact file (`.ubj`, `.txt`, `.cbm`, `.pkl`)
-- Auto-load matching metadata (`.meta.json`)
-- Show model metadata + metrics
-- Predict next 30 days prices
-- Show prediction table and line graph
+- Select model artifact (`.ubj`, `.txt`, `.cbm`, `.pkl`).
+- Auto-load matching metadata.
+- Shows metadata and metrics.
+- Shows training fit chart for the original dataset.
+- Shows "Next 30 Days Price Prediction".
+
+Forecast date behavior:
+
+- Starts from today when today is later than the model's last dataset date.
+- Otherwise starts from the next day after the model's last dataset date.
 
 ### Compare Model
 
-- Select one dataset
-- Select multiple models trained on that dataset
-- Compare metrics side-by-side
-- Compare next 30-day predictions in one chart
-- Chart labels use algorithm names
-
-### History
-
-Shows scraping history from `history.json`.
-
----
+- Select one dataset and multiple models.
+- Shows side-by-side metric table.
+- Generates and overlays 30-day forecasts in one chart.
+- Uses the same forecast start-date behavior as the Model page.
 
 ## Model Artifacts
 
-Artifact extension by algorithm:
-
-- XGBoost Regressor → `.ubj`
-- LightGBM Regressor → `.txt`
-- CatBoostRegressor → `.cbm`
-- SARIMA + ElasticNet → `.pkl`
-
-Each model has a corresponding metadata file:
-
-- `<model_name>.meta.json`
-
----
+- XGBoost Regressor -> `.ubj`
+- LightGBM Regressor -> `.txt`
+- CatBoostRegressor -> `.cbm`
+- SARIMA + ElasticNet -> `.pkl`
+- Metadata -> `<model_name>.meta.json`
 
 ## Notes
 
-- Ensure required libraries are installed from `requirement.txt`.
-- If a model fails to load, verify both artifact file and matching `.meta.json` exist in `Model/`.
-- For legacy metadata formats, compatibility logic is included in model loading.
+- Install all dependencies from `requirement.txt` before training/predicting.
+- Keep artifact and matching metadata together in `Model/`.
+- Legacy metadata fallback is supported when loading models.
+- See `SYSTEM_OVERVIEW.md` for a full step-by-step architecture walkthrough with a figure.

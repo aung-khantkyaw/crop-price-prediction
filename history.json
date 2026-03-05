@@ -3,11 +3,11 @@
     "timestamp": "2026-02-27T10:49:20.094104+00:00",
     "url": "https://agrosightinfo.com/price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=2024-01-01&to=2026-02-27",
     "max_page": 17,
-    "output_prefix": "agrosight_rice_wartan_01_01_2024_to_26_02_2026",
+    "output_prefix": "agrosight_rice_wartan_01_01_2024_to_31_01_2026",
     "status": "success",
     "rows_scraped": 504,
-    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\agrosight_rice_wartan_01_01_2024_to_26_02_2026.csv",
-    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\agrosight_rice_wartan_01_01_2024_to_26_02_2026.json",
+    "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\agrosight_rice_wartan_01_01_2024_to_31_01_2026.csv",
+    "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\agrosight_rice_wartan_01_01_2024_to_31_01_2026.json",
     "error": null
   },
   {
@@ -42,5 +42,38 @@
     "csv_path": "D:\\Project\\paddy-price-predict\\dataset\\csv\\corn_dataset.csv",
     "json_path": "D:\\Project\\paddy-price-predict\\dataset\\json\\corn_dataset.json",
     "error": null
+  },
+  {
+    "timestamp": "2026-03-05T06:19:52.057040+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%99%E1%80%90%E1%80%BA%E1%80%95%E1%80%B2%28SQRC%29%E1%80%9E%E1%80%85%E1%80%BA&from=&to=2026-02-28",
+    "max_page": 17,
+    "output_prefix": "Urad_Bean_From_2024_01_01_To_2025_02_28",
+    "status": "success",
+    "rows_scraped": 484,
+    "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\Urad_Bean_From_2024_01_01_To_2025_02_28.csv",
+    "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\Urad_Bean_From_2024_01_01_To_2025_02_28.json",
+    "error": null
+  },
+  {
+    "timestamp": "2026-03-05T08:32:34.047301+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=&to=2026-02-15",
+    "max_page": 17,
+    "output_prefix": "rice_price",
+    "status": "failed",
+    "rows_scraped": 0,
+    "csv_path": null,
+    "json_path": null,
+    "error": "HTTPSConnectionPool(host='agrosightinfo.com', port=443): Max retries exceeded with url: /price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=&to=2026-02-15&page=1 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))"
+  },
+  {
+    "timestamp": "2026-03-05T08:32:51.491110+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=&to=2026-02-15",
+    "max_page": 17,
+    "output_prefix": "rice_price",
+    "status": "failed",
+    "rows_scraped": 0,
+    "csv_path": null,
+    "json_path": null,
+    "error": "HTTPSConnectionPool(host='agrosightinfo.com', port=443): Max retries exceeded with url: /price/search?shop_id=3&crop=%E1%80%86%E1%80%94%E1%80%BA%E1%80%A7%E1%80%8A%E1%80%B7%E1%80%BA%E1%80%99%E1%80%91%28%E1%80%91%E1%80%AD%E1%80%95%E1%80%BA%E1%80%85%29&from=&to=2026-02-15&page=1 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))"
   }
 ]
