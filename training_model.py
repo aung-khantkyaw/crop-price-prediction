@@ -89,7 +89,73 @@ FEATURE_COLUMNS = [
     "price_momentum",
 ]
 ROLLING_SCALER_WINDOW = 30
+VALIDATION_RATIO = 0.2
+MIN_ROWS_FOR_VALIDATION = 10
+XGB_ESTIMATORS = 1200
+XGB_LEARNING_RATE = 0.03
+LIGHTGBM_ESTIMATORS = 1200
+LIGHTGBM_LEARNING_RATE = 0.03
+CATBOOST_ITERATIONS = 2000
+CATBOOST_LEARNING_RATE = 0.03
+CATBOOST_EARLY_STOPPING_ROUNDS = 100
+SARIMA_ORDER_TRIALS = 12
 TrainingPoint = tuple[date, float, float, float, float]
+
+
+def get_training_policy(model_type: str | None = None, target_mode: str = "price") -> dict:
+    normalized_model_type = normalize_model_type(model_type or "")
+    policy = {
+        "feature_set": FEATURE_COLUMNS.copy(),
+        "validation_ratio": VALIDATION_RATIO,
+        "min_rows_for_validation": MIN_ROWS_FOR_VALIDATION,
+        "target_mode": target_mode,
+        "model_type": normalized_model_type or "auto",
+    }
+
+    if normalized_model_type == "xgboost_regressor":
+        policy["tuning_budget"] = {
+            "estimators": XGB_ESTIMATORS,
+            "learning_rate": XGB_LEARNING_RATE,
+            "max_depth": 6,
+            "subsample": 1.0,
+            "colsample_bytree": 1.0,
+        }
+        return policy
+
+    if normalized_model_type == "lightgbm_regressor":
+        policy["tuning_budget"] = {
+            "estimators": LIGHTGBM_ESTIMATORS,
+            "learning_rate": LIGHTGBM_LEARNING_RATE,
+            "num_leaves": 31,
+            "max_depth": -1,
+        }
+        return policy
+
+    if normalized_model_type == "catboost_regressor":
+        policy["tuning_budget"] = {
+            "iterations": CATBOOST_ITERATIONS,
+            "learning_rate": CATBOOST_LEARNING_RATE,
+            "depth": 6,
+            "loss_function": "Huber:delta=180",
+            "early_stopping_rounds": CATBOOST_EARLY_STOPPING_ROUNDS,
+        }
+        return policy
+
+    if normalized_model_type == "sarima_elasticnet":
+        policy["tuning_budget"] = {
+            "sarima_order_trials": SARIMA_ORDER_TRIALS,
+            "elasticnet_alpha": 0.1,
+            "elasticnet_l1_ratio": 0.5,
+        }
+        return policy
+
+    policy["tuning_budget"] = {
+        "xgb_estimators": XGB_ESTIMATORS,
+        "lightgbm_estimators": LIGHTGBM_ESTIMATORS,
+        "catboost_iterations": CATBOOST_ITERATIONS,
+        "sarima_order_trials": SARIMA_ORDER_TRIALS,
+    }
+    return policy
 
 
 def get_training_model_options() -> list[str]:
@@ -577,20 +643,38 @@ def _to_float_list(values: Any) -> list[float]:
     return output
 
 
+def _split_train_validation(
+    features: list[list[float]],
+    targets: list[float],
+) -> tuple[list[list[float]], list[float], list[list[float]] | None, list[float] | None]:
+    if len(features) != len(targets):
+        raise ValueError("Features and targets must have the same length.")
+
+    if len(features) < MIN_ROWS_FOR_VALIDATION:
+        return features, targets, None, None
+
+    validation_count = max(1, int(len(features) * VALIDATION_RATIO))
+    validation_count = min(validation_count, len(features) - 1)
+
+    train_features = features[:-validation_count]
+    train_targets = targets[:-validation_count]
+    valid_features = features[-validation_count:]
+    valid_targets = targets[-validation_count:]
+    return train_features, train_targets, valid_features, valid_targets
+
+
 def _train_xgboost(features: list[list[float]], targets: list[float]) -> tuple[Any, list[float]]:
     if XGBRegressor is None:
         raise ImportError("xgboost is not installed.")
 
-    validation_count = max(1, int(len(features) * 0.2)) if len(features) >= 10 else 0
-    train_features = features[:-validation_count] if validation_count else features
-    train_targets = targets[:-validation_count] if validation_count else targets
+    train_features, train_targets, valid_features, valid_targets = _split_train_validation(features, targets)
     eval_set: list[tuple[list[list[float]], list[float]]] = [(train_features, train_targets)]
-    if validation_count:
-        eval_set.append((features[-validation_count:], targets[-validation_count:]))
+    if valid_features is not None and valid_targets is not None:
+        eval_set.append((valid_features, valid_targets))
 
     model = XGBRegressor(
-        n_estimators=500,
-        learning_rate=0.05,
+        n_estimators=XGB_ESTIMATORS,
+        learning_rate=XGB_LEARNING_RATE,
         max_depth=6,
         subsample=1.0,
         colsample_bytree=1.0,
@@ -612,22 +696,20 @@ def _train_lightgbm(features: list[list[float]], targets: list[float]) -> tuple[
     except Exception as exc:
         raise ImportError("numpy is required for lightgbm training.") from exc
 
-    validation_count = max(1, int(len(features) * 0.2)) if len(features) >= 10 else 0
-    train_features = features[:-validation_count] if validation_count else features
-    train_targets = targets[:-validation_count] if validation_count else targets
+    train_features, train_targets, valid_features, valid_targets = _split_train_validation(features, targets)
 
     train_features_array = np.asarray(train_features, dtype=float)
     train_targets_array = np.asarray(train_targets, dtype=float)
 
     eval_set = None
-    if validation_count:
-        valid_features_array = np.asarray(features[-validation_count:], dtype=float)
-        valid_targets_array = np.asarray(targets[-validation_count:], dtype=float)
+    if valid_features is not None and valid_targets is not None:
+        valid_features_array = np.asarray(valid_features, dtype=float)
+        valid_targets_array = np.asarray(valid_targets, dtype=float)
         eval_set = [(valid_features_array, valid_targets_array)]
 
     model = LGBMRegressor(
-        n_estimators=300,
-        learning_rate=0.03,
+        n_estimators=LIGHTGBM_ESTIMATORS,
+        learning_rate=LIGHTGBM_LEARNING_RATE,
         num_leaves=31,
         max_depth=-1,
         random_state=42,
@@ -644,26 +726,24 @@ def _train_catboost(features: list[list[float]], targets: list[float]) -> tuple[
     if CatBoostRegressor is None:
         raise ImportError("catboost is not installed.")
 
-    validation_count = max(1, int(len(features) * 0.2)) if len(features) >= 10 else 0
-    train_features = features[:-validation_count] if validation_count else features
-    train_targets = targets[:-validation_count] if validation_count else targets
+    train_features, train_targets, valid_features, valid_targets = _split_train_validation(features, targets)
 
     model = CatBoostRegressor(
-        iterations=2000,
-        learning_rate=0.03,
+        iterations=CATBOOST_ITERATIONS,
+        learning_rate=CATBOOST_LEARNING_RATE,
         depth=6,
         l2_leaf_reg=3.0,
         loss_function="Huber:delta=180",
         eval_metric="RMSE",
         random_seed=42,
         verbose=False,
-        early_stopping_rounds=100,
+        early_stopping_rounds=CATBOOST_EARLY_STOPPING_ROUNDS,
     )
-    if validation_count:
+    if valid_features is not None and valid_targets is not None:
         model.fit(
             train_features,
             train_targets,
-            eval_set=(features[-validation_count:], targets[-validation_count:]),
+            eval_set=(valid_features, valid_targets),
             use_best_model=True,
         )
     else:
@@ -673,32 +753,6 @@ def _train_catboost(features: list[list[float]], targets: list[float]) -> tuple[
 
 
 def _select_sarima_order(targets: list[float]) -> tuple[int, int, int]:
-    auto_arima_func = None
-    try:
-        from pmdarima import auto_arima as auto_arima_func  # type: ignore
-    except Exception:
-        auto_arima_func = None
-
-    if auto_arima_func is not None:
-        try:
-            auto_model = auto_arima_func(
-                targets,
-                seasonal=False,
-                start_p=0,
-                start_q=0,
-                max_p=4,
-                max_q=4,
-                max_d=2,
-                error_action="ignore",
-                suppress_warnings=True,
-                stepwise=True,
-            )
-            order = getattr(auto_model, "order", None)
-            if isinstance(order, tuple) and len(order) == 3:
-                return int(order[0]), int(order[1]), int(order[2])
-        except Exception:
-            pass
-
     candidate_orders = [
         (1, 1, 1),
         (2, 1, 1),
@@ -708,6 +762,7 @@ def _select_sarima_order(targets: list[float]) -> tuple[int, int, int]:
         (0, 1, 1),
         (1, 0, 1),
     ]
+    candidate_orders = candidate_orders[: max(1, SARIMA_ORDER_TRIALS)]
     best_order = (1, 1, 1)
     best_aic = float("inf")
 
@@ -739,19 +794,21 @@ def _train_sarima_elasticnet(features: list[list[float]], targets: list[float]) 
     if SARIMAX is None:
         raise ImportError("statsmodels is not installed.")
 
+    train_features, train_targets, _, _ = _split_train_validation(features, targets)
+
     elastic_model = ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=42, max_iter=10000)
-    elastic_model.fit(features, targets)
+    elastic_model.fit(train_features, train_targets)
     elastic_predictions = _to_float_list(elastic_model.predict(features))
 
-    sarima_order = _select_sarima_order(targets)
+    sarima_order = _select_sarima_order(train_targets)
     sarima_result = SARIMAX(
-        targets,
+        train_targets,
         order=sarima_order,
         trend="c",
         enforce_stationarity=False,
         enforce_invertibility=False,
     ).fit(disp=False)
-    sarima_predictions = _to_float_list(sarima_result.get_prediction(start=0, end=len(targets) - 1).predicted_mean)
+    sarima_predictions = _to_float_list(sarima_result.get_forecast(steps=len(targets)).predicted_mean)
 
     combined_predictions = [
         (elastic_pred + sarima_pred) / 2.0
@@ -796,6 +853,7 @@ def train_xgboost_from_points(points: list[TrainingPoint]) -> tuple[Any, dict]:
         "test_size": len(test_points),
         "feature_columns": FEATURE_COLUMNS,
         "target_mode": "price",
+        "training_policy": get_training_policy(model_type="xgboost_regressor", target_mode="price"),
         "last_observed_price": float(train_points[-1][1]),
         "last_observed_change": float(train_points[-1][2]),
         "last_observed_percent": float(train_points[-1][3]),
@@ -844,30 +902,21 @@ def train_selected_model_from_points(points: list[TrainingPoint], model_name: st
     if model_type is None:
         raise ValueError("Unsupported model type.")
 
-    if model_type == "catboost_regressor":
-        target_mode = "price_diff"
-        train_target_diffs = [float(point[4]) for point in train_points]
-        evaluation_model = _train_model_by_type(model_type, train_features, train_target_diffs)
-        predicted_diffs = _to_float_list(evaluation_model.predict(test_features))
-        reconstructed_prices: list[float] = []
-        for index, predicted_diff in enumerate(predicted_diffs):
-            previous_actual_price = float(train_points[-1][1]) if index == 0 else float(test_points[index - 1][1])
-            reconstructed_price = max(previous_actual_price + float(predicted_diff), 0.0)
-            reconstructed_prices.append(reconstructed_price)
-        test_actual_prices = [float(point[1]) for point in test_points]
-        metrics = calculate_regression_metrics(test_actual_prices, reconstructed_prices)
-    else:
-        target_mode = "price"
-        evaluation_model = _train_model_by_type(model_type, train_features, train_targets)
-        test_predictions = _predict_for_dataset(evaluation_model, model_type, test_features)
-        metrics = calculate_regression_metrics(test_targets, test_predictions)
+    target_mode = "price_diff"
+    train_target_diffs = [float(point[4]) for point in train_points]
+    evaluation_model = _train_model_by_type(model_type, train_features, train_target_diffs)
+    predicted_diffs = _predict_for_dataset(evaluation_model, model_type, test_features)
+    reconstructed_prices: list[float] = []
+    for index, predicted_diff in enumerate(predicted_diffs):
+        previous_actual_price = float(train_points[-1][1]) if index == 0 else float(test_points[index - 1][1])
+        reconstructed_price = max(previous_actual_price + float(predicted_diff), 0.0)
+        reconstructed_prices.append(reconstructed_price)
+    test_actual_prices = [float(point[1]) for point in test_points]
+    metrics = calculate_regression_metrics(test_actual_prices, reconstructed_prices)
 
     full_features, full_targets, origin_date, last_date = _build_training_features_for_columns(points, FEATURE_COLUMNS)
-    if model_type == "catboost_regressor":
-        full_target_diffs = [float(point[4]) for point in points]
-        final_model = _train_model_by_type(model_type, full_features, full_target_diffs)
-    else:
-        final_model = _train_model_by_type(model_type, full_features, full_targets)
+    full_target_diffs = [float(point[4]) for point in points]
+    final_model = _train_model_by_type(model_type, full_features, full_target_diffs)
 
     training_info = {
         "model_name": model_name,
@@ -878,6 +927,7 @@ def train_selected_model_from_points(points: list[TrainingPoint], model_name: st
         "test_size": len(test_points),
         "feature_columns": FEATURE_COLUMNS,
         "target_mode": target_mode,
+        "training_policy": get_training_policy(model_type=model_type, target_mode=target_mode),
         "last_observed_price": float(points[-1][1]),
         "last_observed_change": float(points[-1][2]),
         "last_observed_percent": float(points[-1][3]),
@@ -955,6 +1005,13 @@ def save_model_and_metadata(
         "test_size": training_info.get("test_size"),
         "feature_columns": training_info.get("feature_columns", ["day_index"]),
         "target_mode": training_info.get("target_mode", "price"),
+        "training_policy": training_info.get(
+            "training_policy",
+            get_training_policy(
+                model_type=model_type,
+                target_mode=str(training_info.get("target_mode", "price")),
+            ),
+        ),
         "last_observed_price": training_info.get("last_observed_price"),
         "last_observed_change": training_info.get("last_observed_change"),
         "last_observed_percent": training_info.get("last_observed_percent"),
@@ -1276,6 +1333,7 @@ def get_training_fit_rows(
     model: Any,
     model_type: str,
     feature_columns: list[str] | None = None,
+    target_mode: str | None = None,
 ) -> list[dict]:
     if not points:
         return []
@@ -1288,23 +1346,27 @@ def get_training_fit_rows(
     )
     features, targets, _, _ = _build_training_features_for_columns(points, effective_feature_columns)
 
-    if normalized_model_type in {"xgboost_regressor", "lightgbm_regressor"}:
-        predicted_values = _to_float_list(model.predict(features))
-    elif normalized_model_type == "catboost_regressor":
-        predicted_diffs = _to_float_list(model.predict(features))
-        predicted_values = []
-        for index, predicted_diff in enumerate(predicted_diffs):
-            previous_actual_price = float(points[index - 1][1]) if index >= 1 else float(points[0][1])
-            predicted_values.append(max(previous_actual_price + float(predicted_diff), 0.0))
+    effective_target_mode = str(target_mode or "price")
+
+    if normalized_model_type in {"xgboost_regressor", "lightgbm_regressor", "catboost_regressor"}:
+        predicted_outputs = _to_float_list(model.predict(features))
     elif normalized_model_type == "sarima_elasticnet":
         elastic_predictions = _to_float_list(model["elastic_model"].predict(features))
         sarima_predictions = _to_float_list(model["sarima_result"].get_prediction(start=0, end=len(targets) - 1).predicted_mean)
-        predicted_values = [
+        predicted_outputs = [
             (elastic_pred + sarima_pred) / 2.0
             for elastic_pred, sarima_pred in zip(elastic_predictions, sarima_predictions)
         ]
     else:
         raise ValueError("Unsupported model type.")
+
+    if effective_target_mode == "price_diff":
+        predicted_values = []
+        for index, predicted_diff in enumerate(predicted_outputs):
+            previous_actual_price = float(points[index - 1][1]) if index >= 1 else float(points[0][1])
+            predicted_values.append(max(previous_actual_price + float(predicted_diff), 0.0))
+    else:
+        predicted_values = predicted_outputs
 
     fit_rows: list[dict] = []
     for point, actual_value, predicted_value in zip(points, targets, predicted_values):
@@ -1396,7 +1458,7 @@ def predict_next_days_from_model(
             )
             scaled_feature_values = _scale_feature_vector_with_history(feature_values, recent_feature_rows_raw)
             predicted_output = _predict_for_features(model, model_type, scaled_feature_values)
-            if model_type == "catboost_regressor" and target_mode == "price_diff":
+            if target_mode == "price_diff":
                 predicted_price = previous_price + float(predicted_output)
             else:
                 predicted_price = float(predicted_output)
@@ -1438,7 +1500,10 @@ def predict_next_days_from_model(
         elastic_pred = float(elastic_model.predict([scaled_feature_values])[0])
         elastic_predictions.append(elastic_pred)
 
-        estimated_price = max(elastic_pred, 0.0)
+        if target_mode == "price_diff":
+            estimated_price = max(previous_price + elastic_pred, 0.0)
+        else:
+            estimated_price = max(elastic_pred, 0.0)
         estimated_change = estimated_price - previous_price
         estimated_percent = _calculate_percent_change(estimated_change, previous_price)
         previous_price = estimated_price
@@ -1453,9 +1518,15 @@ def predict_next_days_from_model(
 
     sarima_forecast = _to_float_list(sarima_result.get_forecast(steps=total_steps).predicted_mean)
     predictions = []
+    reconstruction_price = float(metadata.get("last_observed_price", 0.0) or 0.0)
     for idx in range(total_steps):
         predict_date = first_prediction_date + timedelta(days=idx)
-        predicted_price = (elastic_predictions[idx] + sarima_forecast[idx]) / 2.0
+        combined_output = (elastic_predictions[idx] + sarima_forecast[idx]) / 2.0
+        if target_mode == "price_diff":
+            predicted_price = max(reconstruction_price + combined_output, 0.0)
+            reconstruction_price = predicted_price
+        else:
+            predicted_price = combined_output
         predictions.append(
             {
                 X_COLUMN: predict_date.isoformat(),

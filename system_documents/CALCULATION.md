@@ -55,7 +55,7 @@ What it does:
 2. Creates lag and statistical features:
    - `lag_1`, `lag_1_change`, `lag_1_percent`, `lag_7`
    - `ma_7`, `ma_30`, `volatility_7`, `price_momentum`
-3. Builds target values (usually `price`; CatBoost uses `price_diff` in final training mode).
+3. Builds target values and uses `price_diff` as the unified training target mode.
 4. Applies rolling-window standardization (window size = 30 rows).
 
 Output:
@@ -77,9 +77,8 @@ Supported models and training methods:
 
 Important behavior:
 
-- For **CatBoost**, evaluation is done using predicted `price_diff`, then converted back to price:
+- For all models, evaluation is done using predicted `price_diff`, then converted back to price:
   - `predicted_price_t = max(previous_actual_price + predicted_diff_t, 0)`
-- For other models, prediction is direct price prediction.
 
 ---
 
@@ -236,6 +235,7 @@ Metadata is created in `save_model_and_metadata(...)` using `training_info` from
 - `test_size`: number of test rows (20%)
 - `feature_columns`: feature list used
 - `target_mode`: `price` or `price_diff`
+- `training_policy`: model-specific training policy (split config, target mode, model type, tuning budget)
 
 ### Last-observed context fields
 
@@ -300,10 +300,11 @@ How it works:
 - Uses gradient boosting of decision trees.
 - Builds trees sequentially; each new tree focuses on previous errors.
 - In this project, it uses:
-  - `n_estimators=500`
-  - `learning_rate=0.05`
+  - `n_estimators=1200`
+  - `learning_rate=0.03`
   - `max_depth=6`
   - objective: squared error
+- Training target mode: `price_diff` (reconstructed to price for metrics/forecast)
 
 Why it is useful for this project:
 
@@ -330,9 +331,10 @@ How it works:
 
 - Also a gradient-boosted tree model, optimized for speed and memory.
 - In this project, it uses:
-  - `n_estimators=300`
+  - `n_estimators=1200`
   - `learning_rate=0.03`
   - `num_leaves=31`
+- Training target mode: `price_diff` (reconstructed to price for metrics/forecast)
 
 Why it is useful for this project:
 
@@ -362,8 +364,9 @@ How it works in this project:
   - `learning_rate=0.03`
   - `depth=6`
   - `loss_function="Huber:delta=180"`
+  - `early_stopping_rounds=100`
 - Special behavior in your pipeline:
-  - Final target mode is `price_diff` (daily difference), not direct price.
+  - Target mode is `price_diff` (daily difference), not direct price.
   - Predicted difference is reconstructed to price by
     - `predicted_price_t = max(previous_price + predicted_diff_t, 0)`
 
@@ -401,6 +404,7 @@ Why it is useful for this project:
 - ElasticNet captures feature-driven patterns.
 - SARIMA captures classical time-series structure (autoregressive/moving-average behavior).
 - Hybrid averaging can reduce single-model bias.
+- Training target mode: `price_diff` (combined output reconstructed to price)
 
 Practical strengths:
 
@@ -461,6 +465,8 @@ Theoretical comparison is based on:
 - **Complexity:** medium to high training cost.
 - **Interpretability:** moderate.
 - **Expected behavior in crop prices:** predicting day-to-day difference can improve stability in trending series; however, recursive reconstruction can accumulate error over long horizons.
+
+Note: In the current implementation, `price_diff` target mode is applied to all four models for training/evaluation consistency, while CatBoost keeps its original robust-loss and early-stopping strategy.
 
 #### SARIMA + ElasticNet (Hybrid)
 

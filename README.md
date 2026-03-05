@@ -14,6 +14,7 @@ CPP is a Streamlit application for scraping crop price data from Agrosight, prep
 - Preprocess datasets and apply consistency fixes.
 - Visualize prices with line charts and monthly boxplots.
 - Train multiple forecasting algorithms.
+- Train models using a `price_diff` target and reconstruct price outputs.
 - Predict the next 30 days of prices.
 - Compare metrics and forecast curves across models.
 
@@ -90,9 +91,11 @@ py -m streamlit run streamlit_app.py
   - LightGBM Regressor
   - CatBoostRegressor
   - SARIMA + ElasticNet
+- Uses `price_diff` as training target for all algorithms and reconstructs predicted prices.
 - Saves:
   - model artifact in `Model/`
   - metadata in `Model/*.meta.json`
+- Saves model-specific `training_policy` in metadata (feature set, split, target mode, and tuning budget).
 - Shows metrics: Accuracy, R2, MAE, RMSE, MAPE.
 - Shows training "Actual vs Predicted" chart.
 
@@ -101,6 +104,7 @@ py -m streamlit run streamlit_app.py
 - Select model artifact (`.ubj`, `.txt`, `.cbm`, `.pkl`).
 - Auto-load matching metadata.
 - Shows metadata and metrics.
+- Shows model training policy from metadata.
 - Shows training fit chart for the original dataset.
 - Shows "Next 30 Days Price Prediction".
 
@@ -113,6 +117,7 @@ Forecast date behavior:
 
 - Select one dataset and multiple models.
 - Shows side-by-side metric table.
+- Shows per-model training policy and consistency status.
 - Generates and overlays 30-day forecasts in one chart.
 - Uses the same forecast start-date behavior as the Model page.
 

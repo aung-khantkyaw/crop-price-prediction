@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +37,11 @@ CSV_DIR = BASE_DIR / "dataset" / "csv"
 JSON_DIR = BASE_DIR / "dataset" / "json"
 HISTORY_PATH = BASE_DIR / "history.json"
 MODEL_DIR = BASE_DIR / "Model"
+SYSTEM_DOCS_DIR = BASE_DIR / "system_documents"
+PROJECT_DOC_PATHS = (
+    SYSTEM_DOCS_DIR / "PROJECT_DOCUMENTATION.md",
+    BASE_DIR / "PROJECT_DOCUMENTATION.md",
+)
 SERIAL_COLUMNS = ("စဥ်", "စဉ်")
 CHANGE_COLUMN = "အတက်/အကျ"
 PERCENT_COLUMN = "%"
@@ -171,6 +177,69 @@ def _get_dynamic_price_interval(rows: list[dict], y_columns: list[str]) -> int:
 
     value_range = max(values) - min(values)
     return _get_dynamic_interval_from_range(value_range)
+
+
+def _format_training_policy(policy: dict | None) -> str:
+    if not isinstance(policy, dict) or not policy:
+        return "N/A"
+
+    validation_ratio = policy.get("validation_ratio", "N/A")
+    min_rows = policy.get("min_rows_for_validation", "N/A")
+    model_type = policy.get("model_type", "N/A")
+    target_mode = policy.get("target_mode", "N/A")
+    tuning_budget = policy.get("tuning_budget", {}) if isinstance(policy.get("tuning_budget", {}), dict) else {}
+
+    budget_parts = [f"{key}={value}" for key, value in tuning_budget.items()]
+    budget_text = ", ".join(budget_parts) if budget_parts else "N/A"
+    return (
+        f"model={model_type}, target={target_mode}, split={validation_ratio}, "
+        f"min_rows={min_rows}, budget=({budget_text})"
+    )
+
+
+def _load_project_documentation_markdown() -> tuple[str | None, Path | None]:
+    for path in PROJECT_DOC_PATHS:
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        if content.strip():
+            return content, path
+
+    return None, None
+
+
+def _render_markdown_with_local_images(markdown_text: str, markdown_path: Path) -> None:
+    image_pattern = re.compile(r"!\[(.*?)\]\((.*?)\)")
+    cursor = 0
+
+    for match in image_pattern.finditer(markdown_text):
+        start, end = match.span()
+        alt_text, image_ref = match.groups()
+
+        if start > cursor:
+            text_block = markdown_text[cursor:start]
+            if text_block.strip():
+                st.markdown(text_block)
+
+        image_ref = image_ref.strip()
+        image_path = (markdown_path.parent / image_ref).resolve()
+        if image_ref.lower().startswith(("http://", "https://")):
+            st.image(image_ref, caption=alt_text or None, width='stretch')
+        elif image_path.exists() and image_path.is_file():
+            st.image(str(image_path), caption=alt_text or None, width='stretch')
+        else:
+            st.markdown(match.group(0))
+
+        cursor = end
+
+    if cursor < len(markdown_text):
+        remaining = markdown_text[cursor:]
+        if remaining.strip():
+            st.markdown(remaining)
 
 
 def render_line_chart(rows: list[dict], x_column: str, y_columns: list[str]) -> None:
@@ -418,114 +487,14 @@ def show_home_page() -> None:
 
 
 def show_about_system_page() -> None:
-    st.title("About System")
-    st.write(
-        "CPP is a Streamlit-based application for scraping crop price data from Agrosight, managing datasets, training forecasting models, and comparing model predictions."
-    )
 
-    st.markdown("## Data Source")
-    st.markdown("All datasets are collected from:")
-    st.markdown("- https://agrosightinfo.com/")
+    documentation_markdown, documentation_path = _load_project_documentation_markdown()
+    if documentation_markdown is None or documentation_path is None:
+        st.error("PROJECT_DOCUMENTATION.md was not found.")
+        st.info("Expected path: system_documents/PROJECT_DOCUMENTATION.md or PROJECT_DOCUMENTATION.md")
+        return
 
-    st.markdown("## Features")
-    st.markdown("- Scrape crop price table data from Agrosight URLs")
-    st.markdown("- Save outputs to CSV and JSON")
-    st.markdown("- Keep activity logs in `history.json`")
-    st.markdown("- Read, preprocess, and visualize datasets")
-    st.markdown("- Train multiple forecasting algorithms")
-    st.markdown("- Predict next 30 days prices")
-    st.markdown("- Compare models trained on the same dataset")
-
-    st.markdown("## App Pages")
-
-    st.markdown("### Home")
-    st.markdown("Project overview, workflow explanation, model options, and comparison flow.")
-
-    st.markdown("### Scrap Dataset")
-    st.markdown("- Input: URL, Max Page, Output Prefix (optional)")
-    st.markdown("- Output: CSV in `dataset/csv`, JSON in `dataset/json`")
-    st.markdown("- Logs action to `history.json`")
-
-    st.markdown("### Dataset")
-    st.markdown("- Select CSV file")
-    st.markdown("- Data Preprocessing State with save-to-CSV action")
-    st.markdown("- Replace missing/zero price on 04/05/2025 from 03/05/2025")
-    st.markdown("- Fill missing days across full date range using previous day row")
-    st.markdown("- Fix `စဥ်/စဉ်` serial column to sequential values when needed")
-    st.markdown("- Normalize `အတက်/အကျ` and `%` (`-` → `0` and `0.00%`, including row 1)")
-    st.markdown("- Recalculate `အတက်/အကျ` from day-to-day price differences")
-    st.markdown("- Preview dataset table")
-    st.markdown("- Filter by date range")
-    st.markdown("- Line graph uses date (`နေ့စွဲ`) and price (`စျေးနှုန်း (မြန်မာကျပ်)`)")
-    st.markdown("- Interval adapts by range: 1 month = daily, 6 months = weekly, 1 year = every 15 days")
-    st.markdown("- Line graph Y-axis: `min_price - 1000` to `max_price + 1000`")
-    st.markdown("- Monthly boxplot Y-axis: `min_price - 5000` to `max_price + 5000`")
-
-    st.markdown("### Traing Model")
-    st.markdown("Train model from selected dataset and algorithm.")
-    st.markdown("Training input columns: `နေ့စွဲ`, `စျေးနှုန်း (မြန်မာကျပ်)`, `အတက်/အကျ`, `%`")
-    st.markdown("Supported algorithms:")
-    st.markdown("- XGBoost Regressor")
-    st.markdown("- LightGBM Regressor")
-    st.markdown("- CatBoostRegressor")
-    st.markdown("- SARIMA + ElasticNet")
-    st.markdown("Training output includes model artifact + `.meta.json` metadata and metrics (Accuracy, R², MAE, RMSE, MAPE).")
-
-    st.markdown("### Algorithm Details (Difference, Advantage, Disadvantage)")
-    st.markdown("#### 1) XGBoost Regressor")
-    st.markdown("- **How it works:** Gradient boosting decision trees optimized for strong predictive performance.")
-    st.markdown("- **Advantages:** High accuracy, robust on non-linear patterns, good general-purpose model.")
-    st.markdown("- **Disadvantages:** More parameters to tune, can be slower than LightGBM on larger data.")
-
-    st.markdown("#### 2) LightGBM Regressor")
-    st.markdown("- **How it works:** Histogram-based gradient boosting trees with efficient training.")
-    st.markdown("- **Advantages:** Very fast training, good performance, scalable to larger datasets.")
-    st.markdown("- **Disadvantages:** Can overfit small/noisy datasets without careful tuning.")
-
-    st.markdown("#### 3) CatBoostRegressor")
-    st.markdown("- **How it works:** Gradient boosting with ordered boosting and strong default handling for feature patterns.")
-    st.markdown("- **Advantages:** Stable performance with minimal tuning, often robust on complex patterns.")
-    st.markdown("- **Disadvantages:** Training can be slower than LightGBM; model files may be larger.")
-
-    st.markdown("#### 4) SARIMA + ElasticNet")
-    st.markdown("- **How it works:** Combines classical time-series trend/seasonality modeling (SARIMA) with regularized linear regression (ElasticNet).")
-    st.markdown("- **Advantages:** More interpretable, captures temporal structure, useful baseline for time-series behavior.")
-    st.markdown("- **Disadvantages:** Usually less flexible for highly non-linear patterns; sensitive to parameter choices.")
-
-    st.markdown("#### Practical Difference Summary")
-    st.markdown("- **Best overall accuracy (typical):** XGBoost / CatBoost")
-    st.markdown("- **Fastest training:** LightGBM")
-    st.markdown("- **Most interpretable:** SARIMA + ElasticNet")
-    st.markdown("- **Recommended strategy:** Train all 4 and compare by RMSE/MAE/MAPE on the same dataset.")
-
-    st.markdown("### Model")
-    st.markdown("- Select model artifact file (`.ubj`, `.txt`, `.cbm`, `.pkl`)")
-    st.markdown("- Auto-load matching metadata (`.meta.json`)")
-    st.markdown("- Show model metadata + metrics")
-    st.markdown("- Predict next 30 days prices")
-    st.markdown("- Show prediction table and line graph")
-
-    st.markdown("### Compare Model")
-    st.markdown("- Select one dataset")
-    st.markdown("- Select multiple models trained on that dataset")
-    st.markdown("- Compare metrics side-by-side")
-    st.markdown("- Compare next 30-day predictions in one chart")
-    st.markdown("- Chart labels use algorithm names")
-
-    st.markdown("### History")
-    st.markdown("Shows scraping history from `history.json`.")
-
-    st.markdown("## Model Artifacts")
-    st.markdown("- XGBoost Regressor → `.ubj`")
-    st.markdown("- LightGBM Regressor → `.txt`")
-    st.markdown("- CatBoostRegressor → `.cbm`")
-    st.markdown("- SARIMA + ElasticNet → `.pkl`")
-    st.markdown("- Each model has corresponding metadata: `<model_name>.meta.json`")
-
-    st.markdown("## Notes")
-    st.markdown("- Ensure required libraries are installed from `requirement.txt`.")
-    st.markdown("- If a model fails to load, verify artifact and matching `.meta.json` in `Model/`.")
-    st.markdown("- Legacy metadata compatibility is supported in model loading.")
+    _render_markdown_with_local_images(documentation_markdown, documentation_path)
 
 
 def show_scrap_page() -> None:
@@ -1002,7 +971,7 @@ def show_dataset_page() -> None:
 
 
 def show_training_model_page() -> None:
-    st.title("Traing Model")
+    st.title("Training Model")
     CSV_DIR.mkdir(parents=True, exist_ok=True)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1096,6 +1065,7 @@ def show_training_model_page() -> None:
             model=model,
             model_type=str(training_info.get("model_type", "")),
             feature_columns=[str(value) for value in training_info.get("feature_columns", [])],
+            target_mode=str(training_info.get("target_mode", "price")),
         )
         if fit_rows:
             st.subheader("Actual vs Predicted (Training Dataset)")
@@ -1161,6 +1131,7 @@ def show_model_page() -> None:
         st.write(f"Created At: {model.get('created_at', 'N/A')}")
         st.write(f"Train Rows: {model.get('train_size', 'N/A')}")
         st.write(f"Test Rows: {model.get('test_size', 'N/A')}")
+        st.write(f"Training Policy: {_format_training_policy(model.get('training_policy'))}")
 
         if not metric_data:
             st.info("Metrics are not available for this model metadata.")
@@ -1186,6 +1157,7 @@ def show_model_page() -> None:
                     model=model_object,
                     model_type=str(model.get("model_type", "")),
                     feature_columns=[str(value) for value in model.get("feature_columns", [])],
+                    target_mode=str(model.get("target_mode", "price")),
                 )
                 if fit_rows:
                     render_line_chart(fit_rows, x_column=X_COLUMN, y_columns=["Actual", "Predicted"])
@@ -1273,8 +1245,11 @@ def show_compare_model_page() -> None:
         st.warning("Select models with different algorithms for better comparison.")
 
     comparison_rows = []
+    policy_signatures = set()
     for item in selected_models:
         metric_data = item.get("metrics", {}) or {}
+        policy_signature = _format_training_policy(item.get("training_policy"))
+        policy_signatures.add(policy_signature)
         comparison_rows.append(
             {
                 "model": item.get("model_name", "N/A"),
@@ -1285,12 +1260,17 @@ def show_compare_model_page() -> None:
                 "mae": metric_data.get("mae", "N/A"),
                 "rmse": metric_data.get("rmse", "N/A"),
                 "mape_percent": metric_data.get("mape_percent", "N/A"),
+                "training_policy": policy_signature,
                 "model_file": item.get("model_file", "N/A"),
             }
         )
 
     st.subheader("Metrics Comparison")
     st.dataframe(comparison_rows, width='stretch')
+    if len(policy_signatures) == 1:
+        st.success("Training policy is consistent across selected models.")
+    else:
+        st.warning("Training policy differs across selected models.")
 
     prediction_series = {}
     algorithm_label_counts: dict[str, int] = {}
@@ -1354,8 +1334,8 @@ def main() -> None:
         st.session_state["page"] = "Scrap"
     if st.sidebar.button("Dataset", width='stretch'):
         st.session_state["page"] = "Dataset"
-    if st.sidebar.button("Traing Model", width='stretch'):
-        st.session_state["page"] = "Traing Model"
+    if st.sidebar.button("Training Model", width='stretch'):
+        st.session_state["page"] = "Training Model"
     if st.sidebar.button("Model", width='stretch'):
         st.session_state["page"] = "Model"
     if st.sidebar.button("Compare Model", width='stretch'):
@@ -1376,7 +1356,7 @@ def main() -> None:
         show_scrap_page()
     elif page == "Dataset":
         show_dataset_page()
-    elif page == "Traing Model":
+    elif page == "Training Model":
         show_training_model_page()
     elif page == "Model":
         show_model_page()
