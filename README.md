@@ -99,6 +99,14 @@ py -m streamlit run streamlit_app.py
 - Shows metrics: Accuracy, R2, MAE, RMSE, MAPE.
 - Shows training "Actual vs Predicted" chart.
 
+Evaluation metric formulas (actual $y_i$, predicted $\hat{y}_i$, sample size $n$, mean $\bar{y}=\frac{1}{n}\sum_{i=1}^{n}y_i$):
+
+- $R^2 = 1 - \frac{\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}{\sum_{i=1}^{n}(y_i-\bar{y})^2}$
+- $\mathrm{MAE} = \frac{1}{n}\sum_{i=1}^{n}|y_i-\hat{y}_i|$
+- $\mathrm{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}$
+- $\mathrm{MAPE}(\%) = \frac{100}{n'}\sum_{i\in I}\left|\frac{y_i-\hat{y}_i}{y_i}\right|$, where $I=\{i\mid y_i\neq 0\}$ and $n'=|I|$
+- $\mathrm{Accuracy}(\%) = \max(0,\;100-\mathrm{MAPE}(\%))$
+
 ### Model
 
 - Select model artifact (`.ubj`, `.txt`, `.cbm`, `.pkl`).

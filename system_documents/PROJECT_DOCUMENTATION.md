@@ -144,6 +144,142 @@ The application reports common regression metrics:
 - MAPE (Mean Absolute Percentage Error)
 - Accuracy (project-defined summary metric in metadata/output)
 
+Mathematical definitions (for actual values $y_i$, predicted values $\hat{y}_i$, sample size $n$, and mean actual $\bar{y}=\frac{1}{n}\sum_{i=1}^{n}y_i$):
+
+- **R² (coefficient of determination)**
+
+$$
+R^2 = 1 - \frac{\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}{\sum_{i=1}^{n}(y_i-\bar{y})^2}
+$$
+
+- **MAE (Mean Absolute Error)**
+
+$$
+\mathrm{MAE} = \frac{1}{n}\sum_{i=1}^{n}\left|y_i-\hat{y}_i\right|
+$$
+
+- **RMSE (Root Mean Squared Error)**
+
+$$
+\mathrm{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}
+$$
+
+- **MAPE (Mean Absolute Percentage Error)**
+
+$$
+\mathrm{MAPE}(\%) = \frac{100}{n'}\sum_{i\in I}\left|\frac{y_i-\hat{y}_i}{y_i}\right|,
+\quad I=\{i\mid y_i\neq 0\},\; n'=|I|
+$$
+
+- **Accuracy (project-defined summary metric)**
+
+$$
+\mathrm{Accuracy}(\%) = \max\left(0,\;100-\mathrm{MAPE}(\%)\right)
+$$
+
+Step-by-step calculation sequence:
+
+1. Compute prediction errors for each time step:
+
+$$
+e_i = y_i - \hat{y}_i
+$$
+
+2. Compute absolute and squared errors:
+
+$$
+|e_i|,\quad e_i^2
+$$
+
+3. Aggregate mean error metrics:
+
+$$
+\mathrm{MAE} = \frac{1}{n}\sum_{i=1}^{n}|e_i|,\qquad
+\mathrm{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}e_i^2}
+$$
+
+4. Compute variance ratio for goodness of fit:
+
+$$
+\bar{y}=\frac{1}{n}\sum_{i=1}^{n}y_i,\qquad
+R^2 = 1 - \frac{\sum_{i=1}^{n}e_i^2}{\sum_{i=1}^{n}(y_i-\bar{y})^2}
+$$
+
+5. Compute percentage-based error and project accuracy:
+
+$$
+\mathrm{MAPE}(\%) = \frac{100}{n'}\sum_{i\in I}\left|\frac{e_i}{y_i}\right|,
+\quad I=\{i\mid y_i\neq 0\},\; n'=|I|
+$$
+
+$$
+\mathrm{Accuracy}(\%) = \max\left(0,\;100-\mathrm{MAPE}(\%)\right)
+$$
+
+Real-data worked example (`urad_bean.csv`, test split $n=155$, using saved `urad_bean_xgboost` model):
+
+- First 5 rows of $(y_i,\hat{y}_i,e_i,|e_i|,e_i^2,\mathrm{APE}_i\%)$:
+  - Row 1: $(105782.0000,\;105643.0682,\;138.9318,\;138.9318,\;19302.0347,\;0.131338\%)$
+  - Row 2: $(106501.0000,\;106505.6513,\;-4.6513,\;4.6513,\;21.6346,\;0.004367\%)$
+  - Row 3: $(106827.0000,\;106832.0395,\;-5.0395,\;5.0395,\;25.3965,\;0.004717\%)$
+  - Row 4: $(106827.0000,\;107197.1158,\;-370.1158,\;370.1158,\;136985.7159,\;0.346463\%)$
+  - Row 5: $(106827.0000,\;107043.3878,\;-216.3878,\;216.3878,\;46823.7007,\;0.202559\%)$
+
+- Aggregated values from all 155 test rows:
+
+$$
+\bar{y}=100386.606452,\quad \sum |e_i| = 115956.690542,\quad \sum e_i^2 = 182720442.349512
+$$
+
+$$
+\sum (y_i-\bar{y})^2 = 3656869284.993548
+$$
+
+- Final metric calculations:
+
+$$
+\mathrm{MAE} = \frac{1}{155}\sum |e_i| = 748.107681
+$$
+
+$$
+\mathrm{RMSE} = \sqrt{\frac{1}{155}\sum e_i^2} = 1085.744705
+$$
+
+$$
+R^2 = 1 - \frac{\sum e_i^2}{\sum (y_i-\bar{y})^2} = 0.950034
+$$
+
+$$
+\mathrm{MAPE}(\%) = 0.739942,\qquad
+\mathrm{Accuracy}(\%) = 100 - 0.739942 = 99.260058
+$$
+
+Additional real-data worked examples (same test split $n=155$):
+
+- **LightGBM (`urad_bean_lightgbm`)**
+  - Sample rows:
+    - Row 1: $(105782.0000,\;107461.5728,\;-1679.5728,\;1679.5728,\;2820964.8435,\;1.587768\%)$
+    - Row 2: $(106501.0000,\;106490.2440,\;10.7560,\;10.7560,\;115.6914,\;0.010099\%)$
+    - Row 3: $(106827.0000,\;106759.1062,\;67.8938,\;67.8938,\;4609.5748,\;0.063555\%)$
+  - Aggregates: $\sum |e_i|=127232.773925$, $\sum e_i^2=197861071.058715$, $\sum (y_i-\bar{y})^2=3656869284.993548$
+  - Final: $\mathrm{MAE}=820.856606$, $\mathrm{RMSE}=1129.833191$, $R^2=0.945893$, $\mathrm{MAPE}=0.811689\%$, $\mathrm{Accuracy}=99.188311\%$
+
+- **CatBoost (`urad_bean_catboost`)**
+  - Sample rows:
+    - Row 1: $(105782.0000,\;106208.4341,\;-426.4341,\;426.4341,\;181846.0570,\;0.403125\%)$
+    - Row 2: $(106501.0000,\;106557.5626,\;-56.5626,\;56.5626,\;3199.3236,\;0.053110\%)$
+    - Row 3: $(106827.0000,\;106694.4244,\;132.5756,\;132.5756,\;17576.2841,\;0.124103\%)$
+  - Aggregates: $\sum |e_i|=73152.590380$, $\sum e_i^2=96084204.622566$, $\sum (y_i-\bar{y})^2=3656869284.993548$
+  - Final: $\mathrm{MAE}=471.952196$, $\mathrm{RMSE}=787.336075$, $R^2=0.973725$, $\mathrm{MAPE}=0.467127\%$, $\mathrm{Accuracy}=99.532873\%$
+
+- **SARIMA + ElasticNet (`urad_bean_sarima`)**
+  - Sample rows:
+    - Row 1: $(105782.0000,\;99178.7733,\;6603.2267,\;6603.2267,\;43602602.5048,\;6.242297\%)$
+    - Row 2: $(106501.0000,\;105808.3388,\;692.6612,\;692.6612,\;479779.5012,\;0.650380\%)$
+    - Row 3: $(106827.0000,\;106658.5907,\;168.4093,\;168.4093,\;28361.6898,\;0.157647\%)$
+  - Aggregates: $\sum |e_i|=80499.725859$, $\sum e_i^2=152049566.835311$, $\sum (y_i-\bar{y})^2=3656869284.993548$
+  - Final: $\mathrm{MAE}=519.353070$, $\mathrm{RMSE}=990.436746$, $R^2=0.958421$, $\mathrm{MAPE}=0.510946\%$, $\mathrm{Accuracy}=99.489054\%$
+
 Together, these metrics provide complementary perspectives on forecast quality and error behavior.
 
 ### 6) Data Preprocessing Rationale
