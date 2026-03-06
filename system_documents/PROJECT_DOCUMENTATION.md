@@ -41,13 +41,59 @@ Conventional crop-price tracking is often manual, fragmented, and reactive, maki
 - Model Serialization, Metadata Generation, and Policy Tracking
 - Forecast Generation, Visualization, and End-to-end System Testing
 
-## UML DIAGRAM DESCRIPTION
+## SYSTEM ARCHITECTURE & DESIGN
 
 ### 2.1 System Overview (System Flow Diagram)
 
 The system flow begins with market data collection and continues through preprocessing, model training, evaluation, metadata persistence, and future prediction delivery in the Streamlit interface. The diagram below summarizes the operational pipeline used by CPP.
 
 ![System Flow Diagram](system_flow.png)
+
+### 2.2 Architecture Style
+
+CPP is implemented using a **modular, data-pipeline-driven architecture**, where responsibilities are separated by component boundaries. From data collection to prediction delivery, the workflow is coordinated through page-level orchestration and metadata-based model policies, enabling both maintainability and reproducibility.
+
+### 2.3 Logical Layer Design
+
+The system is organized into four logical layers:
+
+- **Presentation Layer (Streamlit UI):** Handles user interaction through Home, Scrap Dataset, Dataset, Training Model, Model, and Compare Model pages.
+- **Application/Orchestration Layer:** Connects page actions to preprocessing, training, and forecasting routines, and controls end-to-end use-case execution.
+- **Model & Analytics Layer:** Trains, evaluates, and forecasts using XGBoost, LightGBM, CatBoost, and SARIMA + ElasticNet, while computing prediction metrics.
+- **Data & Persistence Layer:** Stores datasets in `dataset/csv` and `dataset/json`, and persists model artifacts and `.meta.json` metadata in `Model/`.
+
+### 2.4 Core Module Responsibilities
+
+- **Scraper Module (`agrosight_scraper.py`):** Collects raw market rows from Agrosight and exports structured CSV/JSON outputs.
+- **Training Module (`training_model.py`):** Executes feature engineering, train/test preparation, model fitting, metric evaluation, and artifact serialization.
+- **App/UI Module (`streamlit_app.py`):** Orchestrates user workflows, data visualization, model loading, and 30-day forecast presentation.
+- **Documentation & Governance (`system_documents/`):** Maintains calculation rules, process descriptions, and system design rationale.
+
+### 2.5 End-to-End Data Flow (Operational)
+
+The operational workflow can be summarized as follows:
+
+1. The user provides a source URL and pagination scope on the Scrap Dataset page.
+2. The scraper collects raw rows and saves structured files to `dataset/csv` and `dataset/json`.
+3. The Dataset page applies preprocessing, including date normalization, numeric parsing, and missing/outlier handling.
+4. The Training Model page trains and evaluates the selected algorithm, then persists artifacts and metadata in `Model/`.
+5. The Model and Compare Model pages load saved models and present 30-day forecasts with metric-based comparisons.
+
+### 2.6 Model Lifecycle & Metadata Policy
+
+CPP manages model lifecycle with a metadata-driven strategy:
+
+- Each trained model is stored with an artifact file (`.ubj`, `.txt`, `.cbm`, `.pkl`) and companion metadata (`.meta.json`).
+- Metadata captures dataset context, feature policy, evaluation metrics, and configuration summary for traceable results.
+- During inference, metadata checks help reduce training-serving mismatch and improve deployment consistency.
+
+### 2.7 Design Principles Applied
+
+- **Separation of Concerns:** Scraping, training, inference, and UI responsibilities are isolated by module.
+- **Reproducibility:** Artifact and metadata policies support consistent reruns and comparable results.
+- **Extensibility:** The architecture allows straightforward integration of new models or feature pipelines.
+- **Usability:** A workflow-centric Streamlit interface supports both technical and non-technical users.
+- **Practical Forecast Delivery:** Evaluation outputs are paired with next 30-day forecasts for decision-oriented interpretation.
 
 ## THEORY BACKGROUND
 

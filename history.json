@@ -20,5 +20,16 @@
     "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\rice_aemahta.csv",
     "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\rice_aemahta.json",
     "error": null
+  },
+  {
+    "timestamp": "2026-03-06T06:29:43.609055+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%95%E1%80%BC%E1%80%B1%E1%80%AC%E1%80%84%E1%80%BA%E1%80%B8%E1%80%96%E1%80%B0%E1%80%B8%E1%80%85%E1%80%B1%E1%80%B7&from=&to=2026-02-15",
+    "max_page": 17,
+    "output_prefix": "corn_price",
+    "status": "success",
+    "rows_scraped": 476,
+    "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\corn_price.csv",
+    "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\corn_price.json",
+    "error": null
   }
 ]
