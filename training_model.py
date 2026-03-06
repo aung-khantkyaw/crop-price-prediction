@@ -603,6 +603,64 @@ def calculate_regression_metrics(actual_values: list[float], predicted_values: l
     }
 
 
+def build_metric_calculation_sequence(actual_values: list[float], predicted_values: list[float]) -> dict:
+    if not actual_values or len(actual_values) != len(predicted_values):
+        raise ValueError("Invalid values for metric calculation sequence.")
+
+    count = len(actual_values)
+    errors = [float(actual - predicted) for actual, predicted in zip(actual_values, predicted_values)]
+    absolute_errors = [abs(error) for error in errors]
+    squared_errors = [error ** 2 for error in errors]
+
+    mae = sum(absolute_errors) / count
+    mse = sum(squared_errors) / count
+    rmse = mse ** 0.5
+    mean_actual = sum(actual_values) / count
+
+    total_variance = sum((float(actual) - mean_actual) ** 2 for actual in actual_values)
+    residual_variance = sum(squared_errors)
+    r2 = 0.0 if total_variance == 0 else 1 - (residual_variance / total_variance)
+
+    per_row_mape_values = []
+    mape_values = []
+    for actual, predicted in zip(actual_values, predicted_values):
+        if float(actual) == 0:
+            per_row_mape_values.append(None)
+            continue
+        ape_percent = abs((float(actual) - float(predicted)) / float(actual)) * 100
+        per_row_mape_values.append(float(ape_percent))
+        mape_values.append(float(ape_percent))
+
+    mape = (sum(mape_values) / len(mape_values)) if mape_values else None
+    accuracy_percent = max(0.0, 100.0 - mape) if mape is not None else None
+
+    rows = []
+    for index, (actual, predicted) in enumerate(zip(actual_values, predicted_values), start=1):
+        rows.append(
+            {
+                "i": index,
+                "actual": float(actual),
+                "predicted": float(predicted),
+                "e_i": float(errors[index - 1]),
+                "abs_e_i": float(absolute_errors[index - 1]),
+                "|e_i|": float(absolute_errors[index - 1]),
+                "e_i2": float(squared_errors[index - 1]),
+                "ape_percent": per_row_mape_values[index - 1],
+            }
+        )
+
+    return {
+        "rows": rows,
+        "summary": {
+            "count": count,
+            "mean_actual": float(mean_actual),
+            "y_bar": float(mean_actual),
+            "accuracy_percent": float(accuracy_percent) if accuracy_percent is not None else None,
+            "ACCURACY": float(accuracy_percent) if accuracy_percent is not None else None,
+        },
+    }
+
+
 def _split_train_test_points(points: list[TrainingPoint]) -> tuple[list[TrainingPoint], list[TrainingPoint]]:
     if len(points) < 3:
         raise ValueError("Need at least 3 valid rows to keep last 20% as testing data.")
@@ -845,6 +903,7 @@ def train_xgboost_from_points(points: list[TrainingPoint]) -> tuple[Any, dict]:
 
     test_predictions = [float(value) for value in model.predict(test_features)]
     metrics = calculate_regression_metrics(test_targets, test_predictions)
+    metric_calculation = build_metric_calculation_sequence(test_targets, test_predictions)
 
     training_info = {
         "origin_date": origin_date,
@@ -871,6 +930,7 @@ def train_xgboost_from_points(points: list[TrainingPoint]) -> tuple[Any, dict]:
             if metrics["mape_percent"] is not None
             else None,
         },
+        "metric_calculation": metric_calculation,
     }
     return model, training_info
 
@@ -913,6 +973,7 @@ def train_selected_model_from_points(points: list[TrainingPoint], model_name: st
         reconstructed_prices.append(reconstructed_price)
     test_actual_prices = [float(point[1]) for point in test_points]
     metrics = calculate_regression_metrics(test_actual_prices, reconstructed_prices)
+    metric_calculation = build_metric_calculation_sequence(test_actual_prices, reconstructed_prices)
 
     full_features, full_targets, origin_date, last_date = _build_training_features_for_columns(points, FEATURE_COLUMNS)
     full_target_diffs = [float(point[4]) for point in points]
@@ -945,6 +1006,7 @@ def train_selected_model_from_points(points: list[TrainingPoint], model_name: st
             if metrics["mape_percent"] is not None
             else None,
         },
+        "metric_calculation": metric_calculation,
     }
     return final_model, training_info
 
@@ -1019,6 +1081,7 @@ def save_model_and_metadata(
         "recent_prices": training_info.get("recent_prices", []),
         "recent_feature_rows_raw": training_info.get("recent_feature_rows_raw", []),
         "metrics": training_info["metrics"],
+        "metric_calculation": training_info.get("metric_calculation", {}),
     }
 
     with metadata_path.open("w", encoding="utf-8") as f:

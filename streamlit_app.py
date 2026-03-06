@@ -1141,6 +1141,69 @@ def show_model_page() -> None:
         st.write(f"RMSE: {metric_data.get('rmse', 'N/A')}")
         st.write(f"MAPE (%): {metric_data.get('mape_percent', 'N/A')}")
 
+        metric_calculation = model.get("metric_calculation", {})
+        summary_data = metric_calculation.get("summary", {}) if isinstance(metric_calculation, dict) else {}
+        sequence_rows = metric_calculation.get("rows", []) if isinstance(metric_calculation, dict) else []
+
+        summary_excluded_keys = {
+            "mae",
+            "rmse",
+            "r2",
+            "mape_percent",
+            "mape_percentage",
+            "accuracy_percent"
+        }
+        filtered_summary_data = (
+            {key: value for key, value in summary_data.items() if key not in summary_excluded_keys}
+            if isinstance(summary_data, dict)
+            else {}
+        )
+        display_summary_data = dict(filtered_summary_data)
+        if "y_bar" in display_summary_data:
+            display_summary_data["y\u0304"] = display_summary_data.pop("y_bar")
+        if "R2" in display_summary_data:
+            display_summary_data["R²"] = display_summary_data.pop("R2")
+        if "ACCURACY" in display_summary_data:
+            display_summary_data["Accuracy (%)"] = display_summary_data.pop("ACCURACY")
+
+        st.subheader("Metric Calculation Sequence")
+        if display_summary_data:
+            st.write("Summary")
+            st.dataframe([display_summary_data], width='stretch')
+        else:
+            st.info("No saved metric summary found in metadata.")
+
+        if sequence_rows:
+            subscript_i = "\u1d62"
+            superscript_2 = "\u00b2"
+            e_i_label = f"e{subscript_i}"
+            abs_e_i_label = f"|e{subscript_i}|"
+            e_i2_label = f"e{subscript_i}{superscript_2}"
+
+            st.markdown(f"Step-by-step rows ({e_i_label}, {abs_e_i_label}, {e_i2_label})")
+            display_sequence_rows: list[dict] = []
+            for row in sequence_rows:
+                if not isinstance(row, dict):
+                    continue
+
+                transformed_row: dict = {}
+                for key, value in row.items():
+                    if key == "e_i":
+                        transformed_row[e_i_label] = value
+                    elif key in {"abs_e_i", "|e_i|"}:
+                        transformed_row[abs_e_i_label] = value
+                    elif key == "e_i2":
+                        transformed_row[e_i2_label] = value
+                    elif key == "ape_percent":
+                        transformed_row["APE (%)"] = value
+                    else:
+                        transformed_row[key] = value
+                display_sequence_rows.append(transformed_row)
+
+            st.dataframe(display_sequence_rows, width='stretch')
+        else:
+            st.info("No saved step-by-step metric rows found in metadata.")
+
     with fit_col:
         st.subheader("Actual vs Predicted (Training Dataset)")
         dataset_name = str(model.get("dataset_file", "")).strip()
