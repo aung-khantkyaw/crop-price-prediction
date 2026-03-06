@@ -419,7 +419,6 @@ def show_home_page() -> None:
             days = (today - last_date).days
             note = "Today forecast"
 
-        prediction_status = "OK"
         try:
             predictions = predict_next_days_from_model(metadata=effective_metadata, model_dir=MODEL_DIR, days=days)
             predicted_price = float(predictions[-1][Y_COLUMN]) if predictions else None
@@ -435,7 +434,6 @@ def show_home_page() -> None:
                 "prediction_date": prediction_date.isoformat(),
                 "predicted_price": predicted_price,
                 "note": note,
-                "status": prediction_status,
             }
         )
 
@@ -460,8 +458,10 @@ def show_home_page() -> None:
                     first_row = next(reader, None)
                     if first_row:
                         item_name = str(first_row.get("အမျိုးအမည်", "")).strip()
+                        item_market = str(first_row.get("ကုန်စည်ဒိုင်", "")).strip()
+                        item_metric = str(first_row.get("အချင်အတွယ်", "")).strip()
                         if item_name:
-                            item_title = item_name
+                            item_title = f"{item_market} ၏ {item_name} - ({item_metric}) ဈေးနှုန်း ခန့်မှန်းချက်" if item_metric else item_name
             except OSError:
                 pass
 
@@ -476,8 +476,7 @@ def show_home_page() -> None:
                     "algorithm": row.get("algorithm", "N/A"),
                     "prediction_date": row.get("prediction_date", "N/A"),
                     "predicted_price": row.get("predicted_price"),
-                    "note": row.get("note", "N/A"),
-                    "status": row.get("status", "OK"),
+                    "note": row.get("note", "N/A")
                 }
             )
 
