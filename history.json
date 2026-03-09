@@ -31,5 +31,16 @@
     "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\corn_price.csv",
     "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\corn_price.json",
     "error": null
+  },
+  {
+    "timestamp": "2026-03-06T12:03:44.771065+00:00",
+    "url": "https://agrosightinfo.com/price/search?shop_id=2&crop=%E1%80%99%E1%80%90%E1%80%BA%E1%80%95%E1%80%B2%28SQRC%29%E1%80%9E%E1%80%85%E1%80%BA&from=&to=2026-02-15",
+    "max_page": 17,
+    "output_prefix": "urad_bean",
+    "status": "success",
+    "rows_scraped": 476,
+    "csv_path": "D:\\Project\\crop-price-prediction\\dataset\\csv\\urad_bean.csv",
+    "json_path": "D:\\Project\\crop-price-prediction\\dataset\\json\\urad_bean.json",
+    "error": null
   }
 ]

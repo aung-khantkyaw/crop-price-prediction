@@ -12,11 +12,11 @@ The **Crop Price Prediction (CPP)** system is an intelligent, data-driven platfo
 
 ### 1.2 Objectives
 
-- Deliver a robust, user-friendly platform for scraping, managing, and visualizing crop-price datasets.
-- Train and compare multiple forecasting models (XGBoost, LightGBM, CatBoost, SARIMA + ElasticNet) under consistent data-processing workflows.
-- Implement reproducible model lifecycle management using saved artifacts and metadata policies.
-- Generate short-term (next 30 days) price forecasts to support data-informed agricultural decisions.
-- Establish a foundation for future enhancements such as richer external features, automated retraining, and advanced analytics dashboards.
+- To deliver a robust, user-friendly platform for scraping, managing, and visualizing crop-price datasets.
+- To train and compare multiple forecasting models (XGBoost, LightGBM, CatBoost, SARIMA + ElasticNet) under consistent data-processing workflows.
+- To implement reproducible model lifecycle management using saved artifacts and metadata policies.
+- To generate short-term (next 30 days) price forecasts to support data-informed agricultural decisions.
+- To establish a foundation for future enhancements such as richer external features, automated retraining, and advanced analytics dashboards.
 
 ### 1.3 Motivation
 
@@ -69,7 +69,7 @@ The system is organized into four logical layers:
 - **App/UI Module (`streamlit_app.py`):** Orchestrates user workflows, data visualization, model loading, and 30-day forecast presentation.
 - **Documentation & Governance (`system_documents/`):** Maintains calculation rules, process descriptions, and system design rationale.
 
-### 2.5 End-to-End Data Flow (Operational)
+### 2.5 End-to-End Data Flow
 
 The operational workflow can be summarized as follows:
 
@@ -87,7 +87,7 @@ CPP manages model lifecycle with a metadata-driven strategy:
 - Metadata captures dataset context, feature policy, evaluation metrics, and configuration summary for traceable results.
 - During inference, metadata checks help reduce training-serving mismatch and improve deployment consistency.
 
-### 2.7 Design Principles Applied
+### 2.7 Applied Design Principles
 
 - **Separation of Concerns:** Scraping, training, inference, and UI responsibilities are isolated by module.
 - **Reproducibility:** Artifact and metadata policies support consistent reruns and comparable results.
@@ -101,7 +101,7 @@ CPP manages model lifecycle with a metadata-driven strategy:
 
 Time-series forecasting estimates future values based on historical observations ordered by time. For crop prices, recurring patterns (seasonality), short-term persistence (autocorrelation), and sudden shocks (outliers) are common. A robust pipeline should therefore combine temporal features, lag information, and noise handling.
 
-### 2) Feature Engineering Principles Used
+### 2) Used Feature Engineering Principles
 
 The project derives predictive signals from observed price history, including:
 
@@ -328,6 +328,38 @@ Additional real-data worked examples (same test split $n=155$):
 
 Together, these metrics provide complementary perspectives on forecast quality and error behavior.
 
+### 5.1 Why CatBoost Is Currently the Best-Performing Model
+
+Based on the current experiments in this project, CatBoost delivers the strongest overall performance on the `urad_bean` test split. It achieves the best values across all major evaluation metrics reported in the system: highest $R^2$ (0.973725), lowest MAE (471.952196), lowest RMSE (787.336075), lowest MAPE (0.467127%), and highest Accuracy (99.532873%). This indicates that CatBoost not only explains more variance in price movement, but also produces smaller average and large-error deviations than the other compared models.
+
+There are several practical reasons for this result in the current pipeline:
+
+- CatBoost handles nonlinear interactions among lag, moving-average, momentum, and calendar features effectively.
+- The configured robust loss behavior (Huber) helps reduce sensitivity to noisy or abrupt market fluctuations.
+- Ordered boosting reduces prediction shift and often improves generalization on tabular time-derived features.
+- The `price_diff` training strategy aligns well with CatBoost's residual-learning mechanism, improving short-horizon movement prediction before price reconstruction.
+
+Therefore, within the present dataset and preprocessing/training configuration, CatBoost is the most reliable model for short-term crop-price forecasting in this system. This conclusion should be interpreted as **current best performance under the evaluated setup**, and can be re-validated when new data or feature sets are introduced.
+
+### 5.2 Prediction Comparison Matrix (Observed Results)
+
+To compare model performance directly, the matrix below summarizes final test metrics for the same split (`urad_bean.csv`, $n=155$).
+
+| Model               | R2 (Higher Better) | MAE (Lower Better) | RMSE (Lower Better) | MAPE % (Lower Better) | Accuracy % (Higher Better) | Overall Rank Score\* | Final Rank |
+| ------------------- | ------------------ | ------------------ | ------------------- | --------------------- | -------------------------- | -------------------- | ---------- |
+| CatBoost            | 0.973725           | 471.952196         | 787.336075          | 0.467127              | 99.532873                  | 5                    | 1          |
+| SARIMA + ElasticNet | 0.958421           | 519.353070         | 990.436746          | 0.510946              | 99.489054                  | 10                   | 2          |
+| XGBoost             | 0.950034           | 748.107681         | 1085.744705         | 0.739942              | 99.260058                  | 15                   | 3          |
+| LightGBM            | 0.945893           | 820.856606         | 1129.833191         | 0.811689              | 99.188311                  | 20                   | 4          |
+
+\*Overall Rank Score uses simple rank-sum across the five metrics (rank 1 is best per metric). Lower total score indicates better overall performance.
+
+Comparison interpretation:
+
+- CatBoost ranks first on all five metrics, showing consistently lower prediction error and stronger goodness-of-fit.
+- SARIMA + ElasticNet is second overall and remains competitive, especially in MAPE and Accuracy.
+- XGBoost and LightGBM remain usable baselines but show larger average and squared errors in this test setting.
+
 ### 6) Data Preprocessing Rationale
 
 Real-world scraped tables can include inconsistent date formats, missing values, and non-numeric symbols. The pipeline includes:
@@ -338,6 +370,29 @@ Real-world scraped tables can include inconsistent date formats, missing values,
 - Outlier mitigation (notably for rice datasets) using robust median/MAD-based checks
 
 This improves training stability and forecast reliability.
+
+### 7) KDD Process Mapping in Theory Background
+
+The following mapping aligns the KDD pipeline with the current Theory Background content and clarifies which parts belong to **Preprocessing**, **Training**, **Evaluation**, and **Knowledge Presentation**.
+
+| KDD Process Step       | CPP Theory/Document Focus                                                                                                                           | Main Stage Category    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Data Cleaning          | Date normalization, numeric parsing, missing/outlier handling (`6) Data Preprocessing Rationale`)                                                   | Preprocessing          |
+| Data Integration       | Combining scraped records into structured dataset flow (`1.4 System Specifications`, `2.5 End-to-End Data Flow`)                                    | Preprocessing          |
+| Data Selection         | Selecting target crop dataset and train/test split context (`5) Evaluation Metrics` worked examples)                                                | Preprocessing          |
+| Data Transformation    | Feature engineering and `price_diff` target formulation (`2) Used Feature Engineering Principles`, model descriptions in `3.x`)                     | Preprocessing          |
+| Data Mining            | Model learning with XGBoost, LightGBM, CatBoost, SARIMA + ElasticNet (`3) Model Families Implemented`)                                              | Training               |
+| Pattern Evaluation     | Metric computation and cross-model comparison (`5) Evaluation Metrics`, `5.1`, `5.2`)                                                               | Evaluation             |
+| Knowledge Presentation | Interpretation of best model and decision-oriented reporting in documentation/UI (`5.1`, `CONCLUSION`, comparison pages in implementation overview) | Knowledge Presentation |
+
+Stage-wise explanation:
+
+- **Preprocessing part in Theory Background:** `2) Used Feature Engineering Principles` and `6) Data Preprocessing Rationale` describe how raw scraped data is cleaned, selected, and transformed before model fitting.
+- **Training part in Theory Background:** `3) Model Families Implemented` explains the data-mining algorithms and learning assumptions used for model training.
+- **Evaluation part in Theory Background:** `4) Theoretical Comparison Matrix`, `5) Evaluation Metrics`, and `5.2 Prediction Comparison Matrix` define how model quality is measured and compared.
+- **Knowledge presentation part in Theory Background:** `5.1 Why CatBoost Is Currently the Best-Performing Model` converts numeric evaluation outcomes into actionable knowledge for stakeholders.
+
+This KDD alignment improves methodological clarity and makes the transition from raw data to actionable forecasting insight explicit.
 
 ## IMPLEMENTATION DETAILS
 

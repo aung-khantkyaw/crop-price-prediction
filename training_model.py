@@ -283,14 +283,9 @@ def _detect_best_column(rows: list[dict], parser: Any, minimum_success: int = 2)
     return best_column
 
 
-def _is_rice_dataset(csv_path: Path) -> bool:
-    file_name = csv_path.name.lower()
-    return "rice" in file_name or "wartan" in file_name
-
-
-def _sanitize_dataset_points(points: list[tuple[date, float, float, float]], csv_path: Path) -> list[tuple[date, float, float, float]]:
+def _sanitize_dataset_points(points: list[tuple[date, float, float, float]], _csv_path: Path) -> list[tuple[date, float, float, float]]:
     cleaned: list[tuple[date, float, float, float]] = [point for point in points if float(point[1]) > 0]
-    if not cleaned or not _is_rice_dataset(csv_path):
+    if not cleaned:
         return cleaned
 
     prices = [float(price) for _, price, _, _ in cleaned]
